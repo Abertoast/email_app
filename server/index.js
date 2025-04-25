@@ -34,18 +34,26 @@ app.post('/api/log', (req, res) => {
 
 // Utility function to create and configure Imap connection
 function createImapConnection(config) {
-  return new Imap({
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  const imapConfig = {
     user: config.email,
     password: config.password,
     host: config.imapHost,
     port: config.imapPort,
     tls: Number(config.imapPort) === 993,
-    // Increase timeout for connection attempts
-    tlsOptions: { rejectUnauthorized: false }, // Allow self-signed certs (DEBUGGING ONLY)
-    connTimeout: 10000, // milliseconds
-    authTimeout: 5000, // milliseconds
-    // debug: console.log // Enable detailed logging if needed
-  });
+    connTimeout: 10000,
+    authTimeout: 5000,
+    // debug: console.log
+  };
+
+  // Only disable certificate checks in non-production environments
+  if (!isProduction) {
+    imapConfig.tlsOptions = { rejectUnauthorized: false };
+    console.log('[createImapConnection] Development environment detected, allowing self-signed certificates.');
+  }
+
+  return new Imap(imapConfig);
 }
 
 // Fetch emails endpoint using node-imap
@@ -211,6 +219,7 @@ app.post('/api/fetchEmails', (req, res) => {
 
 // Test connection endpoint using node-imap
 app.post('/api/testConnection', (req, res) => {
+  console.log('[API /api/testConnection] Handler invoked.');
   const { imapHost, imapPort, email, password } = req.body;
 
   if (!imapHost || !imapPort || !email || !password) {
