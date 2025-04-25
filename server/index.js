@@ -253,8 +253,12 @@ app.post('/api/testConnection', (req, res) => {
   imap.connect();
 });
 
+// Only run listen locally (when VERCEL env var is not set)
+if (!process.env.VERCEL) {
+  const PORT = process.env.PORT || 3001;
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`[Local] Email API server listening on port ${PORT}`);
+  }); 
+}
 
-const PORT = process.env.PORT || 3001;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Email API server listening on port ${PORT}`);
-}); 
+export default app; // Export the app for Vercel 
