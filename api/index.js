@@ -4,6 +4,8 @@ import Imap from 'imap'; // Use node-imap
 import { simpleParser } from 'mailparser'; // Import mailparser
 // import { simpleParser } from 'mailparser'; // Needed to parse fetched message bodies - Removed as not currently used
 
+console.log('[api/index.js] Module loaded by Vercel runtime.');
+
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
