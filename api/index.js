@@ -36,7 +36,7 @@ app.post('/api/log', (req, res) => {
 
 // Utility function to create and configure Imap connection
 function createImapConnection(config) {
-  const isProduction = process.env.NODE_ENV === 'production';
+  // const isProduction = process.env.NODE_ENV === 'production'; // Temporarily ignore environment
 
   const imapConfig = {
     user: config.email,
@@ -46,14 +46,17 @@ function createImapConnection(config) {
     tls: Number(config.imapPort) === 993,
     connTimeout: 10000,
     authTimeout: 5000,
+    tlsOptions: { rejectUnauthorized: false } // Force allow untrusted certs for debugging
     // debug: console.log
   };
 
   // Only disable certificate checks in non-production environments
-  if (!isProduction) {
-    imapConfig.tlsOptions = { rejectUnauthorized: false };
-    console.log('[createImapConnection] Development environment detected, allowing self-signed certificates.');
-  }
+  // if (!isProduction) { // Temporarily ignore environment
+  //   imapConfig.tlsOptions = { rejectUnauthorized: false };
+  //   console.log('[createImapConnection] Development environment detected, allowing self-signed certificates.');
+  // }
+
+  console.warn('[createImapConnection] WARNING: Allowing untrusted certificates (rejectUnauthorized: false) - FOR DEBUGGING ONLY.');
 
   return new Imap(imapConfig);
 }
