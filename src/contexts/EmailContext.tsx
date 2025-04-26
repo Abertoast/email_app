@@ -31,6 +31,7 @@ interface EmailQuery {
   status: string;
   folder: string;
   maxResults: number;
+  subjectSearchTerm?: string;
 }
 
 interface QueryHistoryItem {
@@ -130,7 +131,8 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         startDate: queryData.startDate,
         endDate: queryData.endDate,
         status: queryData.status,
-        maxResults: queryData.maxResults
+        maxResults: queryData.maxResults,
+        subjectSearchTerm: queryData.subjectSearchTerm
       };
 
       // Use logToServer for backend-related info

@@ -206,6 +206,8 @@ app.post('/api/fetchEmails', (req, res) => {
     subjectSearchTerm
   } = req.body;
 
+  console.log(`[API /api/fetchEmails] Received subjectSearchTerm: '${subjectSearchTerm}'`);
+
   if (!imapHost || !imapPort || !email || !password) {
     console.log('[API /api/fetchEmails] Missing connection details');
     return res.status(400).json({ error: 'Missing IMAP connection details' });
