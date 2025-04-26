@@ -68,15 +68,32 @@ const Dashboard: React.FC = () => {
     
     try {
       const emails = await fetchEmails(formData);
-      setEmailCount(emails.length);
-      setFetchedEmails(emails);
       
-      if (emails.length === 0) {
+      // --- START Grouping and Filtering Logic ---
+      const emailThreads = new Map<string, any>();
+      
+      // Group emails by subject, keeping the most recent (first encountered due to backend sorting)
+      emails.forEach(email => {
+        const subject = email.subject || '(no subject)'; // Handle potential null/undefined subjects
+        if (!emailThreads.has(subject)) {
+          emailThreads.set(subject, email);
+        }
+      });
+      
+      const latestEmailsFromThreads = Array.from(emailThreads.values());
+      // --- END Grouping and Filtering Logic ---
+      
+      // Update state and processing with the filtered list
+      setEmailCount(latestEmailsFromThreads.length); // Count threads
+      setFetchedEmails(latestEmailsFromThreads); // Display latest from each thread
+      
+      if (latestEmailsFromThreads.length === 0) {
         toast('No emails found matching your criteria');
         return;
       }
       
-      await processEmails(emails, finalPrompt, processIndividually);
+      // Process only the latest email from each thread
+      await processEmails(latestEmailsFromThreads, finalPrompt, processIndividually);
     } catch (error) {
       toast.error('Error processing emails');
       console.error(error);
@@ -178,31 +195,48 @@ const Dashboard: React.FC = () => {
               </span>
             </div>
             
-            <div className="space-y-2 max-h-60 overflow-y-auto">
-              {fetchedEmails.map((email) => (
-                <div 
-                  key={email.id}
-                  className="bg-white p-3 rounded-md border border-gray-200"
-                >
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="font-medium text-gray-900">{email.subject}</p>
-                      <p className="text-sm text-gray-600">{email.sender}</p>
+            <div className="space-y-3">
+              {fetchedEmails.map((email) => {
+                return (
+                  <div 
+                    key={email.id}
+                    className="bg-white p-3 rounded-md border border-gray-200"
+                  >
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="font-medium text-gray-900">{email.subject}</p>
+                        <p className="text-sm text-gray-600">{email.sender}</p>
+                      </div>
+                      <span className="text-xs text-gray-500">
+                        {new Date(email.date).toLocaleDateString()}
+                      </span>
                     </div>
-                    <span className="text-xs text-gray-500">
-                      {new Date(email.date).toLocaleDateString()}
-                    </span>
+                    <div className="mt-1 flex items-center">
+                      <span className={`w-2 h-2 rounded-full mr-2 ${
+                        email.read ? 'bg-gray-400' : 'bg-blue-500'
+                      }`} />
+                      <span className="text-xs text-gray-600">
+                        {email.read ? 'Read' : 'Unread'}
+                      </span>
+                      {/* Render Labels/Flags as Badges */}
+                      <div className="ml-auto flex space-x-1">
+                        {email.flags && Array.isArray(email.flags) && email.flags
+                          .filter((flag: string) => !flag.startsWith('\\')) // Filter out system flags like \Seen
+                          .slice(0, 3) // Limit to 3 labels for UI space
+                          .map((flag: string) => (
+                            <span 
+                              key={flag} 
+                              className="px-2 py-0.5 text-xs font-medium bg-green-100 text-green-800 rounded-full"
+                            >
+                              {/* Optionally remove prefixes like $ or others if needed */}
+                              {flag.replace(/^\\?/, '')} 
+                            </span>
+                          ))}
+                      </div>
+                    </div>
                   </div>
-                  <div className="mt-1 flex items-center">
-                    <span className={`w-2 h-2 rounded-full mr-2 ${
-                      email.read ? 'bg-gray-400' : 'bg-blue-500'
-                    }`} />
-                    <span className="text-xs text-gray-600">
-                      {email.read ? 'Read' : 'Unread'}
-                    </span>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

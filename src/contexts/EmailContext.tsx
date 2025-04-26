@@ -133,7 +133,7 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       };
 
       // Use logToServer for backend-related info
-      logToServer('log', '[EmailContext] Calling /api/fetchEmails with body:', apiBody);
+      // logToServer('log', '[EmailContext] Calling /api/fetchEmails with body:', apiBody);
       const response = await fetch('/api/fetchEmails', {
         method: 'POST',
         headers: {
@@ -250,8 +250,8 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const userPrompt = `Here are the relevant emails:\\n\\n${emailContext}`;
 
         // Log prompts to server
-        logToServer('log', '[EmailContext] System Prompt (User Request):', systemPrompt);
-        logToServer('log', '[EmailContext] User Prompt (Email Context):', userPrompt);
+        // logToServer('log', '[EmailContext] System Prompt (User Request):', systemPrompt);
+        // logToServer('log', '[EmailContext] User Prompt (Email Context):', userPrompt);
 
         logToServer('log', '[EmailContext] Sending batch request to OpenAI...');
         const completion = await openai.chat.completions.create({

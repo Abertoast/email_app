@@ -137,7 +137,8 @@ app.post('/api/fetchEmails', (req, res) => {
         const fetch = imap.fetch(limitedUIDs, {
           bodies: '', // Fetch entire raw message source
           markSeen: false,
-          struct: true // Optional, but useful for mailparser
+          struct: true, // Optional, but useful for mailparser
+          fetchspec: 'X-GM-LABELS' // Explicitly request Gmail labels
         });
 
         fetch.on('message', (msg, seqno) => {
@@ -160,6 +161,7 @@ app.post('/api/fetchEmails', (req, res) => {
             msg.once('end', async () => {
               const currentUid = attributes?.uid || 'N/A'; // Get UID for logging
               console.log(`[API /api/fetchEmails] Finished receiving message #${seqno} (UID: ${currentUid}). Attempting to parse...`);
+              console.log('[API /api/fetchEmails] Attributes received:', attributes); // Log attributes to check for x-gm-labels
 
               if (!attributes) {
                 console.warn(`[API /api/fetchEmails] No attributes found for message #${seqno}, skipping.`);
@@ -176,6 +178,7 @@ app.post('/api/fetchEmails', (req, res) => {
                   subject: parsed.subject || '(no subject)',
                   date: attributes.date,
                   read: attributes.flags.includes('\\Seen'),
+                  flags: attributes['x-gm-labels'] || [], // Use x-gm-labels for Gmail
                   body: parsed.text || (parsed.html ? '[HTML content only]' : '(no text body found)')
                 });
                 console.log(`[API /api/fetchEmails] Successfully parsed UID: ${currentUid}`);
@@ -189,6 +192,7 @@ app.post('/api/fetchEmails', (req, res) => {
                   subject: '(parse error)',
                   date: attributes.date,
                   read: attributes.flags.includes('\\Seen'),
+                  flags: attributes['x-gm-labels'] || [], // Use x-gm-labels for Gmail even on parse error
                   body: `(parse error: ${parseErr.message})` // Include error message in body
                 });
                 resolve(); // Still resolve
