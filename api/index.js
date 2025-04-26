@@ -46,7 +46,10 @@ function createImapConnection(config) {
     tls: Number(config.imapPort) === 993,
     connTimeout: 10000,
     authTimeout: 5000,
-    tlsOptions: { rejectUnauthorized: false } // Force allow untrusted certs for debugging
+    tlsOptions: {
+      servername: config.imapHost, // Add SNI hostname
+      // rejectUnauthorized: false // REMOVE THIS LINE - Use default certificate verification
+    }
     // debug: console.log
   };
 
@@ -56,7 +59,8 @@ function createImapConnection(config) {
   //   console.log('[createImapConnection] Development environment detected, allowing self-signed certificates.');
   // }
 
-  console.warn('[createImapConnection] WARNING: Allowing untrusted certificates (rejectUnauthorized: false) - FOR DEBUGGING ONLY.');
+  // Remove or comment out this warning as we are no longer forcing rejectUnauthorized: false
+  // console.warn('[createImapConnection] WARNING: Allowing untrusted certificates (rejectUnauthorized: false) - FOR DEBUGGING ONLY.');
 
   return new Imap(imapConfig);
 }
