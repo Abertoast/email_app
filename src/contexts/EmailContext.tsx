@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState } from 'react';
 import { useSettings } from './SettingsContext';
 import toast from 'react-hot-toast';
 import OpenAI from 'openai';
+import { useNavigate } from 'react-router-dom';
 
 // Helper function to send logs to the backend
 const logToServer = (level: 'log' | 'warn' | 'error', ...args: any[]) => {
@@ -36,7 +37,17 @@ interface QueryHistoryItem {
   queryData: EmailQuery;
   prompt: string;
   results: string | null;
+  processIndividually: boolean;
 }
+
+// Define structure for latest results
+interface LatestResults {
+  results: string | null;
+  timestamp: number; // To help trigger updates
+}
+
+// Define models that support temperature (can share or redefine here)
+const MODELS_SUPPORTING_TEMP = new Set(['gpt-4o', 'gpt-4.1']);
 
 interface EmailContextType {
   fetchEmails: (queryData: EmailQuery) => Promise<any[]>;
@@ -45,7 +56,9 @@ interface EmailContextType {
   isProcessing: boolean;
   queryHistory: QueryHistoryItem[];
   clearQueryHistory: () => void;
-  rerunQuery: (queryData: EmailQuery) => void;
+  rerunQuery: (queryData: EmailQuery, navigate: ReturnType<typeof useNavigate>) => void;
+  latestResults: LatestResults | null;
+  clearLatestResults: () => void;
 }
 
 const EmailContext = createContext<EmailContextType | undefined>(undefined);
@@ -63,6 +76,7 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [isFetching, setIsFetching] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [queryHistory, setQueryHistory] = useState<QueryHistoryItem[]>([]);
+  const [latestResults, setLatestResults] = useState<LatestResults | null>(null);
   
   // Load query history from localStorage
   React.useEffect(() => {
@@ -76,13 +90,14 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }, []);
   
-  const saveQueryToHistory = (query: EmailQuery, prompt: string, results: string | null) => {
+  const saveQueryToHistory = (query: EmailQuery, prompt: string, results: string | null, processIndividually: boolean) => {
     const newHistory = [
       {
         timestamp: Date.now(),
         queryData: query,
         prompt,
-        results
+        results,
+        processIndividually
       },
       ...queryHistory
     ].slice(0, 20); // Keep only the last 20 queries
@@ -173,39 +188,53 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     try {
       const openai = new OpenAI({
         apiKey: settings.openaiApiKey,
-        dangerouslyAllowBrowser: true // Necessary for client-side calls
+        dangerouslyAllowBrowser: true
       });
+      
+      // Check if the selected model supports temperature
+      const modelSupportsTemp = MODELS_SUPPORTING_TEMP.has(settings.openaiModel);
+      const apiTemperature = modelSupportsTemp ? settings.openaiTemperature : undefined;
 
       if (processIndividually) {
         // --- START Individual OpenAI API Calls ---
         logToServer('log', '[EmailContext] Starting individual email processing.');
 
-        const promises = emails.map(async (email, index) => {
+        const processedResultsPromises = emails.map(async (email, index) => {
           const singleEmailContext = `From: ${email.sender || 'N/A'}\\nSubject: ${email.subject || 'N/A'}\\nDate: ${new Date(email.date).toLocaleString()}\\n\\n${email.body || '(Body not fetched/available)'}`;
           const systemPrompt = prompt;
           const userPrompt = `Here is the email content:\\n\\n${singleEmailContext}`;
 
           logToServer('log', `[EmailContext] Processing email ${index + 1}/${emails.length} (UID: ${email.id}) individually.`);
+          let individualResult = '';
           try {
             const completion = await openai.chat.completions.create({
               model: settings.openaiModel,
+              temperature: apiTemperature,
               messages: [
                 { role: "system", content: systemPrompt },
                 { role: "user", content: userPrompt },
               ],
             });
             logToServer('log', `[EmailContext] Received response for email ${index + 1}/${emails.length}.`);
-            return completion.choices[0]?.message?.content || `(No response for email ${index + 1})`;
+            individualResult = completion.choices[0]?.message?.content || `(No response for email ${index + 1})`;
           } catch (error: any) {
              logToServer('error', `[EmailContext] Error processing email ${index + 1}/${emails.length}:`, error.message);
-             // Return an error message for this specific email
-             return `(Error processing email ${index + 1}: ${error.message})`;
+             individualResult = `(Error processing email ${index + 1}: ${error.message})`;
           }
+          // Return object containing both subject and result
+          return {
+            subject: email.subject || '(No Subject)', 
+            result: individualResult
+          };
         });
 
-        const individualResults = await Promise.all(promises);
-        // Revert separator back to simpler version
-        result = individualResults.join('\n\n---\n\n'); 
+        const processedResultsWithSubjects = await Promise.all(processedResultsPromises);
+        
+        // Format the results with subjects before joining
+        result = processedResultsWithSubjects.map(item => 
+          `Subject: ${item.subject}\n\n${item.result}`
+        ).join('\n\n---\n\n'); 
+
         logToServer('log', '[EmailContext] Finished individual email processing.');
         // --- END Individual OpenAI API Calls ---
 
@@ -227,6 +256,7 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         logToServer('log', '[EmailContext] Sending batch request to OpenAI...');
         const completion = await openai.chat.completions.create({
           model: settings.openaiModel,
+          temperature: apiTemperature,
           messages: [
             { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt },
@@ -245,8 +275,12 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       saveQueryToHistory(
         queryDataToSave,
         prompt,
-        result // Save the combined or single result
+        result,
+        processIndividually
       );
+      
+      // Update latest results state
+      setLatestResults({ results: result, timestamp: Date.now() });
 
       return result; // Return the combined or single result
 
@@ -265,14 +299,27 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       toast.error(errorMessage);
       // Save history even on error, potentially with null result
       const queryDataToSave = emails[0]?.queryData || { dateRange: '', startDate: '', endDate: '', status: 'all', folder: 'INBOX', maxResults: 20 };
-      saveQueryToHistory(queryDataToSave, prompt, `Error: ${errorMessage}`);
+      saveQueryToHistory(
+        queryDataToSave, 
+        prompt, 
+        `Error: ${errorMessage}`, 
+        processIndividually
+      );
+      
+      // Update latest results state with error
+      setLatestResults({ results: `Error: ${errorMessage}`, timestamp: Date.now() });
+      
       throw new Error(errorMessage);
     } finally {
       setIsProcessing(false);
     }
   };
   
-  const rerunQuery = async (queryData: EmailQuery) => {
+  const clearLatestResults = () => {
+    setLatestResults(null);
+  };
+
+  const rerunQuery = async (queryData: EmailQuery, navigate: ReturnType<typeof useNavigate>) => {
     if (!settings.emailConnected) {
       toast.error('Please connect your email in settings first');
       return;
@@ -283,6 +330,13 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return;
     }
     
+    // Clear previous latest results before starting rerun
+    clearLatestResults(); 
+    
+    // Navigate immediately to dashboard
+    navigate('/'); 
+    toast('Rerunning query on the dashboard...'); // Give feedback
+
     try {
       // Find the prompt associated with this query in history
       const historyItem = queryHistory.find(
@@ -294,6 +348,10 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         return;
       }
       
+      // Extract the processIndividually setting from the history item
+      const shouldProcessIndividually = historyItem.processIndividually;
+      logToServer('log', `[EmailContext] Rerunning query. Process individually: ${shouldProcessIndividually}`); // Log the setting
+
       // We need to re-fetch emails potentially, as they might have changed
       // Re-use the stored queryData from history
       const emails = await fetchEmails(historyItem.queryData);
@@ -304,13 +362,14 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         return;
       }
       
-      const result = await processEmails(emails, historyItem.prompt, false);
+      // Pass the retrieved processIndividually setting to processEmails
+      const result = await processEmails(emails, historyItem.prompt, shouldProcessIndividually);
       
-      // Result is already saved to history within processEmails
+      // Result is already saved to history and latestResults state updated within processEmails
       toast.success('Query rerun and processed successfully');
       // Optionally, update UI state if needed to display the new result
     } catch (error) {
-      // Error is already toasted within processEmails or fetchEmails
+      // Error is already toasted and saved to latestResults within processEmails or fetchEmails
       // Keep console.error for actual client-side errors
       console.error('Error rerunning query:', error);
     }
@@ -324,7 +383,9 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       isProcessing,
       queryHistory,
       clearQueryHistory,
-      rerunQuery
+      rerunQuery,
+      latestResults,
+      clearLatestResults
     }}>
       {children}
     </EmailContext.Provider>

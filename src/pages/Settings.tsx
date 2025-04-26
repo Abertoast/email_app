@@ -1,7 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Save, Mail, Key, RefreshCw } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 import toast from 'react-hot-toast';
+
+// Define models that support temperature
+const MODELS_SUPPORTING_TEMP = new Set(['gpt-4o', 'gpt-4.1']);
 
 const Settings: React.FC = () => {
   const { settings, updateSettings, testEmailConnection } = useSettings();
@@ -13,19 +16,43 @@ const Settings: React.FC = () => {
     email: settings.email || '',
     password: settings.password || '',
     openaiApiKey: settings.openaiApiKey || '',
-    openaiModel: settings.openaiModel || 'gpt-4o'
+    openaiModel: settings.openaiModel || 'gpt-4o',
+    openaiTemperature: settings.openaiTemperature ?? 0.7
   });
   const [isTesting, setIsTesting] = useState(false);
   
+  // Determine if the current model supports temperature
+  const currentModelSupportsTemp = MODELS_SUPPORTING_TEMP.has(formData.openaiModel);
+
+  useEffect(() => {
+    setFormData(prev => ({
+      ...prev,
+      imapHost: settings.imapHost || 'imap.gmail.com',
+      imapPort: settings.imapPort || 993,
+      smtpHost: settings.smtpHost || 'smtp.gmail.com',
+      smtpPort: settings.smtpPort || 465,
+      email: settings.email || '',
+      password: settings.password || '',
+      openaiApiKey: settings.openaiApiKey || '',
+      openaiModel: settings.openaiModel || 'gpt-4o',
+      openaiTemperature: settings.openaiTemperature ?? 0.7
+    }));
+  }, [settings]);
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    const { name, value, type } = e.target;
+    const valueToSet = type === 'number' ? parseFloat(value) : value;
+    setFormData(prev => ({ ...prev, [name]: valueToSet }));
   };
   
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await updateSettings(formData);
+      const settingsToSave = {
+        ...formData,
+        openaiTemperature: Number(formData.openaiTemperature) || 0.7
+      };
+      await updateSettings(settingsToSave);
       toast.success('Settings saved successfully');
     } catch (error) {
       toast.error('Failed to save settings');
@@ -248,14 +275,37 @@ const Settings: React.FC = () => {
                   Select the OpenAI model to use for processing emails
                 </p>
               </div>
+              
+              <div>
+                <label 
+                  className={`block text-sm font-medium mb-1 ${currentModelSupportsTemp ? 'text-gray-700' : 'text-gray-400'}`}
+                >
+                  Temperature
+                </label>
+                <input
+                  type="number"
+                  name="openaiTemperature"
+                  value={formData.openaiTemperature}
+                  onChange={handleChange}
+                  className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 ${currentModelSupportsTemp ? 'focus:ring-blue-500' : 'bg-gray-100 text-gray-500 cursor-not-allowed'}`}
+                  min="0"
+                  max="2"
+                  step="0.1"
+                  required
+                  disabled={!currentModelSupportsTemp}
+                />
+                <p className={`mt-1 text-xs ${currentModelSupportsTemp ? 'text-gray-500' : 'text-gray-400'}`}>
+                  Controls randomness (only for {Array.from(MODELS_SUPPORTING_TEMP).join(', ')}). Default: 0.7
+                </p>
+              </div>
             </div>
           </div>
           
-          {/* Submit button */}
-          <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
+          {/* Save Button */}
+          <div className="px-6 py-4 bg-gray-50 text-right">
             <button
               type="submit"
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors duration-200 flex items-center"
+              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors duration-200 font-medium flex items-center justify-center ml-auto"
             >
               <Save className="h-4 w-4 mr-2" />
               Save Settings

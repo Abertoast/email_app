@@ -24,6 +24,7 @@ interface Settings {
   password: string;
   openaiApiKey: string;
   openaiModel: string;
+  openaiTemperature: number;
   emailConnected: boolean;
 }
 
@@ -57,6 +58,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     password: '',
     openaiApiKey: '',
     openaiModel: 'gpt-4o',
+    openaiTemperature: 0.7,
     emailConnected: false
   });
   
@@ -71,6 +73,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setSettings(prevSettings => ({
           ...prevSettings,
           ...parsedSettings,
+          openaiTemperature: parsedSettings.openaiTemperature ?? prevSettings.openaiTemperature,
           emailConnected: !!parsedSettings.email && !!parsedSettings.password
         }));
       } catch (error) {

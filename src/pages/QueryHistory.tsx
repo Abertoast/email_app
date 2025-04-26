@@ -2,9 +2,11 @@ import React from 'react';
 import { Clock, Search, Mail, Trash2, ArrowRight } from 'lucide-react';
 import { useEmail } from '../contexts/EmailContext';
 import toast from 'react-hot-toast';
+import { useNavigate } from 'react-router-dom';
 
 const QueryHistory: React.FC = () => {
   const { queryHistory, clearQueryHistory, rerunQuery } = useEmail();
+  const navigate = useNavigate();
   
   const handleClearHistory = () => {
     if (window.confirm('Are you sure you want to clear your entire query history?')) {
@@ -18,7 +20,7 @@ const QueryHistory: React.FC = () => {
   };
   
   const handleRerun = (queryData: any) => {
-    rerunQuery(queryData);
+    rerunQuery(queryData, navigate);
   };
 
   return (
@@ -102,6 +104,12 @@ const QueryHistory: React.FC = () => {
                         <div>
                           <span className="font-medium">Max Results:</span> 
                           <span className="text-gray-600 ml-1">{query.queryData.maxResults}</span>
+                        </div>
+                        <div className="col-span-2">
+                          <span className="font-medium">Processed Individually:</span> 
+                          <span className="text-gray-600 ml-1">
+                            {query.processIndividually ? 'Yes' : 'No'} 
+                          </span>
                         </div>
                       </div>
                     </div>

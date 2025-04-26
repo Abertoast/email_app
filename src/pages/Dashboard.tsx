@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Calendar, Clock, RefreshCw, Inbox, Search, Loader, X, Mail } from 'lucide-react';
 import { useEmail } from '../contexts/EmailContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -9,16 +9,38 @@ import ProcessingResults from '../components/ProcessingResults';
 
 const Dashboard: React.FC = () => {
   const { settings, savedPrompts } = useSettings();
-  const { fetchEmails, processEmails, isFetching, isProcessing } = useEmail();
+  const { 
+    fetchEmails, 
+    processEmails, 
+    isFetching, 
+    isProcessing, 
+    latestResults,
+    clearLatestResults
+  } = useEmail();
   const [customPrompt, setCustomPrompt] = useState('');
   const [selectedPromptId, setSelectedPromptId] = useState<string | null>(null);
   const [results, setResults] = useState<string | null>(null);
   const [emailCount, setEmailCount] = useState<number | null>(null);
   const [fetchedEmails, setFetchedEmails] = useState<any[]>([]);
+  const resultsContainerRef = useRef<HTMLDivElement>(null);
+  
+  useEffect(() => {
+    if (latestResults) {
+      setResults(latestResults.results);
+    }
+  }, [latestResults]);
+  
+  useEffect(() => {
+    if (!isProcessing && results && resultsContainerRef.current) {
+      resultsContainerRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [isProcessing, results]);
   
   const handleProcess = async (data: { formData: any; processIndividually: boolean }) => {
     const { formData, processIndividually } = data;
 
+    clearLatestResults();
+    
     if (!settings.emailConnected) {
       toast.error('Please connect your email in settings first');
       return;
@@ -54,11 +76,11 @@ const Dashboard: React.FC = () => {
         return;
       }
       
-      const processedResults = await processEmails(emails, finalPrompt, processIndividually);
-      setResults(processedResults);
+      await processEmails(emails, finalPrompt, processIndividually);
     } catch (error) {
       toast.error('Error processing emails');
       console.error(error);
+      setResults(null);
     }
   };
 
@@ -68,6 +90,7 @@ const Dashboard: React.FC = () => {
     setResults(null);
     setEmailCount(null);
     setFetchedEmails([]);
+    clearLatestResults();
   };
   
   return (
@@ -186,7 +209,7 @@ const Dashboard: React.FC = () => {
         
         {/* Results area */}
         {(isProcessing || results) && (
-          <div className="border-t border-gray-200 p-6 bg-gray-50">
+          <div ref={resultsContainerRef} className="border-t border-gray-200 p-6 bg-gray-50">
             <div className="flex items-center mb-4">
               <RefreshCw 
                 className={`w-5 h-5 mr-2 text-blue-600 ${isProcessing ? 'animate-spin' : ''}`} 
