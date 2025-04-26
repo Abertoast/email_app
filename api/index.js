@@ -76,7 +76,8 @@ app.post('/api/fetchEmails', (req, res) => {
     startDate,
     endDate,
     status = 'all',
-    maxResults = 20
+    maxResults = 20,
+    subjectSearchTerm
   } = req.body;
 
   if (!imapHost || !imapPort || !email || !password) {
@@ -114,6 +115,9 @@ app.post('/api/fetchEmails', (req, res) => {
         const endDateStartOfDayUTC = new Date(`${endDate}T00:00:00.000Z`);
         const beforeDate = new Date(endDateStartOfDayUTC.getTime() + 24 * 60 * 60 * 1000);
         searchCriteria.push(['BEFORE', beforeDate.toUTCString()]);
+      }
+      if (subjectSearchTerm && subjectSearchTerm.trim() !== '') {
+        searchCriteria.push(['SUBJECT', subjectSearchTerm.trim()]);
       }
       if (searchCriteria.length === 0) searchCriteria = ['ALL'];
 

@@ -14,7 +14,8 @@ const EmailFilterForm: React.FC<EmailFilterFormProps> = ({ onSubmit, isLoading }
     endDate: new Date().toISOString().split('T')[0],
     status: 'unread',
     maxResults: 20,
-    folder: 'INBOX'
+    folder: 'INBOX',
+    subjectSearchTerm: ''
   });
   const [processIndividually, setProcessIndividually] = useState(false);
   
@@ -139,6 +140,23 @@ const EmailFilterForm: React.FC<EmailFilterFormProps> = ({ onSubmit, isLoading }
           <option value="[Gmail]/Drafts">Drafts</option>
           <option value="[Gmail]/Starred">Starred</option>
         </select>
+      </div>
+      
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Subject Search (Optional)
+        </label>
+        <input
+          type="text"
+          name="subjectSearchTerm"
+          value={formData.subjectSearchTerm}
+          onChange={handleChange}
+          placeholder="Enter subject keyword..."
+          className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        <p className="mt-1 text-xs text-gray-500">
+          Leave blank to ignore subject.
+        </p>
       </div>
       
       <div>

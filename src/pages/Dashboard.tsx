@@ -70,30 +70,30 @@ const Dashboard: React.FC = () => {
       const emails = await fetchEmails(formData);
       
       // --- START Grouping and Filtering Logic ---
-      const emailThreads = new Map<string, any>();
+      // const emailThreads = new Map<string, any>();
       
       // Group emails by subject, keeping the most recent (first encountered due to backend sorting)
-      emails.forEach(email => {
-        const subject = email.subject || '(no subject)'; // Handle potential null/undefined subjects
-        if (!emailThreads.has(subject)) {
-          emailThreads.set(subject, email);
-        }
-      });
+      // emails.forEach(email => {
+      //   const subject = email.subject || '(no subject)'; // Handle potential null/undefined subjects
+      //   if (!emailThreads.has(subject)) {
+      //     emailThreads.set(subject, email);
+      //   }
+      // });
       
-      const latestEmailsFromThreads = Array.from(emailThreads.values());
+      // const latestEmailsFromThreads = Array.from(emailThreads.values());
       // --- END Grouping and Filtering Logic ---
       
-      // Update state and processing with the filtered list
-      setEmailCount(latestEmailsFromThreads.length); // Count threads
-      setFetchedEmails(latestEmailsFromThreads); // Display latest from each thread
+      // Update state and processing with the original list
+      setEmailCount(emails.length); // Count all fetched emails
+      setFetchedEmails(emails); // Display all fetched emails
       
-      if (latestEmailsFromThreads.length === 0) {
+      if (emails.length === 0) { // Check original email list length
         toast('No emails found matching your criteria');
         return;
       }
       
-      // Process only the latest email from each thread
-      await processEmails(latestEmailsFromThreads, finalPrompt, processIndividually);
+      // Process all fetched emails
+      await processEmails(emails, finalPrompt, processIndividually);
     } catch (error) {
       toast.error('Error processing emails');
       console.error(error);
