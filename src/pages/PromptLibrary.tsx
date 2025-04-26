@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { Plus, Edit, Trash2, Save, X } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Plus, Edit, Trash2, Save, X, Variable } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 import toast from 'react-hot-toast';
+import PromptVariablesManager from '../components/PromptVariablesManager';
 
 interface PromptFormData {
   id: string;
@@ -10,13 +11,14 @@ interface PromptFormData {
 }
 
 const PromptLibrary: React.FC = () => {
-  const { savedPrompts, addPrompt, updatePrompt, deletePrompt } = useSettings();
+  const { savedPrompts, addPrompt, updatePrompt, deletePrompt, promptVariables } = useSettings();
   const [isEditing, setIsEditing] = useState(false);
   const [currentPrompt, setCurrentPrompt] = useState<PromptFormData>({
     id: '',
     name: '',
     prompt: ''
   });
+  const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
   
   const handleAddNew = () => {
     setCurrentPrompt({
@@ -73,6 +75,24 @@ const PromptLibrary: React.FC = () => {
     }
   };
   
+  const handleInsertVariable = (key: string) => {
+    if (promptTextareaRef.current) {
+      const textarea = promptTextareaRef.current;
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const text = textarea.value;
+      const variableToInsert = `{${key}}`;
+      const newText = text.substring(0, start) + variableToInsert + text.substring(end);
+      
+      setCurrentPrompt(prev => ({ ...prev, prompt: newText }));
+
+      setTimeout(() => {
+        textarea.selectionStart = textarea.selectionEnd = start + variableToInsert.length;
+        textarea.focus();
+      }, 0);
+    }
+  };
+  
   return (
     <div className="max-w-4xl mx-auto">
       <div className="flex justify-between items-center mb-8">
@@ -122,14 +142,31 @@ const PromptLibrary: React.FC = () => {
                     Prompt Content
                   </label>
                   <textarea
+                    ref={promptTextareaRef}
                     name="prompt"
                     value={currentPrompt.prompt}
                     onChange={handleChange}
-                    rows={8}
-                    className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="E.g., Extract all action items and tasks assigned to me from these emails. For each item, include: the task description, who assigned it, when it's due (if mentioned), and the priority level (if mentioned)."
+                    rows={10}
+                    className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
+                    placeholder="Enter your prompt here... You can use variables like {USERNAME}."
                     required
                   />
+                  {promptVariables.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                       <span className="text-xs text-gray-500 self-center mr-1">Insert:</span>
+                      {promptVariables.map(variable => (
+                        <button
+                          key={variable.id}
+                          type="button"
+                          onClick={() => handleInsertVariable(variable.key)}
+                          className="px-2 py-1 bg-purple-100 text-purple-700 rounded-md hover:bg-purple-200 text-xs font-mono transition-colors"
+                          title={`Insert {${variable.key}}`}
+                        >
+                          {`{${variable.key}}`}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -208,6 +245,10 @@ const PromptLibrary: React.FC = () => {
           )}
         </div>
       )}
+
+      <div className="mt-12">
+        <PromptVariablesManager />
+      </div>
     </div>
   );
 };

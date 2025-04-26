@@ -195,7 +195,7 @@ const Dashboard: React.FC = () => {
               </span>
             </div>
             
-            <div className="space-y-3">
+            <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
               {fetchedEmails.map((email) => {
                 return (
                   <div 

@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { v4 as uuidv4 } from 'uuid';
 
 interface EmailSettings {
   imapHost: string;
@@ -13,6 +14,12 @@ interface SavedPrompt {
   id: string;
   name: string;
   prompt: string;
+}
+
+export interface PromptVariable {
+  id: string;
+  key: string;
+  value: string;
 }
 
 interface Settings {
@@ -31,11 +38,15 @@ interface Settings {
 interface SettingsContextType {
   settings: Settings;
   savedPrompts: SavedPrompt[];
+  promptVariables: PromptVariable[];
   updateSettings: (newSettings: Partial<Settings>) => Promise<void>;
   testEmailConnection: (testSettings: Partial<EmailSettings>) => Promise<{ success: boolean; error?: string }>;
   addPrompt: (prompt: SavedPrompt) => void;
   updatePrompt: (prompt: SavedPrompt) => void;
   deletePrompt: (id: string) => void;
+  addVariable: (variable: Omit<PromptVariable, 'id'>) => void;
+  updateVariable: (variable: PromptVariable) => void;
+  deleteVariable: (id: string) => void;
 }
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
@@ -63,6 +74,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   });
   
   const [savedPrompts, setSavedPrompts] = useState<SavedPrompt[]>([]);
+  const [promptVariables, setPromptVariables] = useState<PromptVariable[]>([]);
   
   // Load settings from localStorage
   useEffect(() => {
@@ -94,7 +106,19 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         {
           id: '1',
           name: 'Extract Action Items',
-          prompt: 'Extract all action items and tasks assigned to me from these emails. For each item, include: the task description, who assigned it, when it\'s due (if mentioned), and the priority level (if mentioned).'
+          prompt: `Your objective is to analyze a list of provided emails and extract all the action items and tasks specifically assigned to the user "{USERNAME}." It is important to focus only on tasks that are addressed directly to {USERNAME} or can be inferred to be a responsibility of {USERNAME} from the context. {USERNAME}'s email address is "{EMAIL}"
+
+## Analysis Guidelines:
+- Direct Assignments: Identify any task explicitly addressed to {USERNAME} by name, such as "{USERNAME}", please handle this," {USERNAME} "This task is for you, {USERNAME}."
+- Implicit Assignments: Recognize tasks implied to be {USERNAME}'s responsibility from email context, even if not explicitly named. For instance:
+   - If an email thread is forwarded and the last email requests {USERNAME}'s assistance, deduce it as a task for {USERNAME}.
+   - Notice phrases like "Can you take care of this?" {USERNAME} "Please review by the end of the week," if sent exclusively to {USERNAME}.
+- Exclusions: Do not extract suggestions, questions, or general discussions that do not clearly assign a task to USERNAM. Ensure that only genuine action items meant for {USERNAME} are included.
+- Contextual Cues: Be attentive to the sender's intent and urgency in sentences. Requests directly sent to {USERNAME} often indicate tasks, especially if they come with deadlines or require a follow-up.
+- Thread Analysis: Efficiently analyze email threads to understand the flow of the conversation and identify when {USERNAME} becomes the sole recipient of a task-oriented email.
+- Task Formating: For each task found, include: the email context, the task description, who assigned it, when it's due (if mentioned), and the priority level (if mentioned). Use markdown for clarity.
+
+In cases where there are no clear tasks assigned to {USERNAME} respond only with "**No Tasks**"`
         },
         {
           id: '2',
@@ -104,6 +128,24 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       ];
       setSavedPrompts(examplePrompts);
       localStorage.setItem('emailai-prompts', JSON.stringify(examplePrompts));
+    }
+
+    // Load prompt variables
+    const storedVariables = localStorage.getItem('emailai-prompt-variables');
+    if (storedVariables) {
+      try {
+        setPromptVariables(JSON.parse(storedVariables));
+      } catch (error) {
+        console.error('Failed to parse stored prompt variables', error);
+      }
+    } else {
+      // Set default variables if none exist
+      const defaultVariables: PromptVariable[] = [
+        { id: uuidv4(), key: 'USERNAME', value: 'Your Name' },
+        { id: uuidv4(), key: 'EMAIL', value: 'your.email@example.com' },
+      ];
+      setPromptVariables(defaultVariables);
+      localStorage.setItem('emailai-prompt-variables', JSON.stringify(defaultVariables));
     }
   }, []);
   
@@ -166,15 +208,62 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     localStorage.setItem('emailai-prompts', JSON.stringify(newPrompts));
   };
   
+  // --- Prompt Variable Management ---
+
+  const addVariable = (variable: Omit<PromptVariable, 'id'>) => {
+    if (!variable.key.trim()) {
+        console.error("Variable key cannot be empty.");
+        return;
+    }
+    if (promptVariables.some(v => v.key.toUpperCase() === variable.key.trim().toUpperCase())) {
+        console.error(`Variable with key "${variable.key}" already exists.`);
+        return;
+    }
+
+    const newVariable = { ...variable, key: variable.key.trim(), id: uuidv4() };
+    const newVariables = [...promptVariables, newVariable];
+    setPromptVariables(newVariables);
+    localStorage.setItem('emailai-prompt-variables', JSON.stringify(newVariables));
+  };
+
+  const updateVariable = (variable: PromptVariable) => {
+     if (!variable.key.trim()) {
+        console.error("Variable key cannot be empty.");
+        return;
+    }
+     if (promptVariables.some(v => v.id !== variable.id && v.key.toUpperCase() === variable.key.trim().toUpperCase())) {
+        console.error(`Variable with key "${variable.key}" already exists.`);
+        return;
+    }
+
+    const newVariables = promptVariables.map(v =>
+      v.id === variable.id ? { ...variable, key: variable.key.trim() } : v
+    );
+    setPromptVariables(newVariables);
+    localStorage.setItem('emailai-prompt-variables', JSON.stringify(newVariables));
+  };
+
+  const deleteVariable = (id: string) => {
+    const newVariables = promptVariables.filter(v => v.id !== id);
+    setPromptVariables(newVariables);
+    localStorage.setItem('emailai-prompt-variables', JSON.stringify(newVariables));
+  };
+
+  // --- End Prompt Variable Management ---
+
   return (
     <SettingsContext.Provider value={{
       settings,
       savedPrompts,
+      promptVariables,
       updateSettings,
       testEmailConnection,
       addPrompt,
       updatePrompt,
-      deletePrompt
+      deletePrompt,
+      addVariable,
+      updateVariable,
+      deleteVariable
     }}>
       {children}
     </SettingsContext.Provider>

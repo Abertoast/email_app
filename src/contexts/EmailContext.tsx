@@ -3,6 +3,7 @@ import { useSettings } from './SettingsContext';
 import toast from 'react-hot-toast';
 import OpenAI from 'openai';
 import { useNavigate } from 'react-router-dom';
+import { substitutePromptVariables } from '../utils/promptUtils';
 
 // Helper function to send logs to the backend
 const logToServer = (level: 'log' | 'warn' | 'error', ...args: any[]) => {
@@ -30,8 +31,6 @@ interface EmailQuery {
   status: string;
   folder: string;
   maxResults: number;
-  subjectSearchTerm?: string;
-  fetchAllFolders?: boolean;
 }
 
 interface QueryHistoryItem {
@@ -74,7 +73,7 @@ export const useEmail = () => {
 };
 
 export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { settings } = useSettings();
+  const { settings, promptVariables } = useSettings();
   const [isFetching, setIsFetching] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [queryHistory, setQueryHistory] = useState<QueryHistoryItem[]>([]);
@@ -131,9 +130,7 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         startDate: queryData.startDate,
         endDate: queryData.endDate,
         status: queryData.status,
-        maxResults: queryData.maxResults,
-        subjectSearchTerm: queryData.subjectSearchTerm,
-        fetchAllFolders: queryData.fetchAllFolders
+        maxResults: queryData.maxResults
       };
 
       // Use logToServer for backend-related info
@@ -183,6 +180,17 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return 'No emails to process';
     }
     
+    // ---> Substitute variables in the prompt <---
+    const substitutedPrompt = substitutePromptVariables(prompt, promptVariables);
+    // Log the original and substituted prompt for debugging if needed
+    if (prompt !== substitutedPrompt) {
+        logToServer('log', '[EmailContext] Original Prompt:', prompt);
+        logToServer('log', '[EmailContext] Substituted Prompt:', substitutedPrompt);
+    } else {
+        logToServer('log', '[EmailContext] Prompt (no substitutions made):', prompt);
+    }
+    // ---> End Substitution <---
+
     setIsProcessing(true);
     logToServer('log', `[EmailContext] Processing ${emails.length} emails. Individual processing: ${processIndividually}`);
     logToServer('log', '[EmailContext] Using OpenAI model:', settings.openaiModel);
@@ -205,7 +213,8 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
         const processedResultsPromises = emails.map(async (email, index) => {
           const singleEmailContext = `From: ${email.sender || 'N/A'}\\nSubject: ${email.subject || 'N/A'}\\nDate: ${new Date(email.date).toLocaleString()}\\n\\n${email.body || '(Body not fetched/available)'}`;
-          const systemPrompt = prompt;
+          // Use the substituted prompt here
+          const systemPrompt = substitutedPrompt;
           const userPrompt = `Here is the email content:\\n\\n${singleEmailContext}`;
 
           logToServer('log', `[EmailContext] Processing email ${index + 1}/${emails.length} (UID: ${email.id}) individually.`);
@@ -250,7 +259,8 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           `From: ${email.sender || 'N/A'}\\nSubject: ${email.subject || 'N/A'}\\nDate: ${new Date(email.date).toLocaleString()}\\n\\n${email.body || '(Body not fetched/available)'}`
         ).join('\\n\\n---\\n\\n'); // Separate emails
 
-        const systemPrompt = prompt;
+        // Use the substituted prompt here
+        const systemPrompt = substitutedPrompt;
         const userPrompt = `Here are the relevant emails:\\n\\n${emailContext}`;
 
         // Log prompts to server
@@ -276,9 +286,10 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const queryDataToSave = emails[0]?.queryData || {
          dateRange: '', startDate: '', endDate: '', status: 'all', folder: 'INBOX', maxResults: 20
       };
+      // Save the *original* prompt to history, not the substituted one
       saveQueryToHistory(
         queryDataToSave,
-        prompt,
+        prompt, // <-- Save original prompt
         result,
         processIndividually
       );
@@ -303,10 +314,11 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       toast.error(errorMessage);
       // Save history even on error, potentially with null result
       const queryDataToSave = emails[0]?.queryData || { dateRange: '', startDate: '', endDate: '', status: 'all', folder: 'INBOX', maxResults: 20 };
+      // Save the *original* prompt to history on error as well
       saveQueryToHistory(
-        queryDataToSave, 
-        prompt, 
-        `Error: ${errorMessage}`, 
+        queryDataToSave,
+        prompt, // <-- Save original prompt
+        `Error: ${errorMessage}`,
         processIndividually
       );
       
@@ -366,7 +378,7 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         return;
       }
       
-      // Pass the retrieved processIndividually setting to processEmails
+      // Note: processEmails will handle the substitution using the prompt from historyItem.prompt
       const result = await processEmails(emails, historyItem.prompt, shouldProcessIndividually);
       
       // Result is already saved to history and latestResults state updated within processEmails
