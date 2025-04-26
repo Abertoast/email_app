@@ -40,7 +40,7 @@ interface QueryHistoryItem {
 
 interface EmailContextType {
   fetchEmails: (queryData: EmailQuery) => Promise<any[]>;
-  processEmails: (emails: any[], prompt: string) => Promise<string>;
+  processEmails: (emails: any[], prompt: string, processIndividually: boolean) => Promise<string>;
   isFetching: boolean;
   isProcessing: boolean;
   queryHistory: QueryHistoryItem[];
@@ -155,7 +155,7 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
   
-  const processEmails = async (emails: any[], prompt: string) => {
+  const processEmails = async (emails: any[], prompt: string, processIndividually: boolean) => {
     if (!settings.openaiApiKey) {
       throw new Error('OpenAI API key not configured');
     }
@@ -165,79 +165,107 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
     
     setIsProcessing(true);
-    
+    logToServer('log', `[EmailContext] Processing ${emails.length} emails. Individual processing: ${processIndividually}`);
+    logToServer('log', '[EmailContext] Using OpenAI model:', settings.openaiModel);
+
+    let result = ''; // Initialize result variable
+
     try {
-      // Log the full settings object received by the context to server
-      logToServer('log', '[EmailContext] Settings object received:', settings);
-
-      logToServer('log', '[EmailContext] Processing emails with prompt:', prompt);
-      logToServer('log', '[EmailContext] Using OpenAI model:', settings.openaiModel);
-
-      // --- START OpenAI API Call ---
       const openai = new OpenAI({
         apiKey: settings.openaiApiKey,
         dangerouslyAllowBrowser: true // Necessary for client-side calls
       });
 
-      // Prepare email content for the prompt
-      // Note: We might need the email body from the backend fetch for better context.
-      // Assuming backend now provides 'sender', 'subject', 'date', 'body'
-       const emailContext = emails.map(email =>
-        `From: ${email.sender || 'N/A'}\nSubject: ${email.subject || 'N/A'}\nDate: ${new Date(email.date).toLocaleString()}\n\n${email.body || '(Body not fetched/available)'}`
-      ).join('\n\n---\n\n'); // Separate emails
+      if (processIndividually) {
+        // --- START Individual OpenAI API Calls ---
+        logToServer('log', '[EmailContext] Starting individual email processing.');
 
-      // Construct the prompt using the user's actual request
-      // System prompt now contains the user's specific instruction/request
-      const systemPrompt = prompt; 
-      // User prompt now only contains the email context
-      const userPrompt = `Here are the relevant emails:\n\n${emailContext}`;
+        const promises = emails.map(async (email, index) => {
+          const singleEmailContext = `From: ${email.sender || 'N/A'}\\nSubject: ${email.subject || 'N/A'}\\nDate: ${new Date(email.date).toLocaleString()}\\n\\n${email.body || '(Body not fetched/available)'}`;
+          const systemPrompt = prompt;
+          const userPrompt = `Here is the email content:\\n\\n${singleEmailContext}`;
 
-      // Log prompts to server
-      logToServer('log', '[EmailContext] System Prompt (User Request):', systemPrompt);
-      logToServer('log', '[EmailContext] User Prompt (Email Context):', userPrompt);
+          logToServer('log', `[EmailContext] Processing email ${index + 1}/${emails.length} (UID: ${email.id}) individually.`);
+          try {
+            const completion = await openai.chat.completions.create({
+              model: settings.openaiModel,
+              messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userPrompt },
+              ],
+            });
+            logToServer('log', `[EmailContext] Received response for email ${index + 1}/${emails.length}.`);
+            return completion.choices[0]?.message?.content || `(No response for email ${index + 1})`;
+          } catch (error: any) {
+             logToServer('error', `[EmailContext] Error processing email ${index + 1}/${emails.length}:`, error.message);
+             // Return an error message for this specific email
+             return `(Error processing email ${index + 1}: ${error.message})`;
+          }
+        });
 
-      logToServer('log', '[EmailContext] Sending request to OpenAI...');
-      const completion = await openai.chat.completions.create({
-        model: settings.openaiModel,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-      });
+        const individualResults = await Promise.all(promises);
+        // Revert separator back to simpler version
+        result = individualResults.join('\n\n---\n\n'); 
+        logToServer('log', '[EmailContext] Finished individual email processing.');
+        // --- END Individual OpenAI API Calls ---
 
-      logToServer('log', '[EmailContext] Received response from OpenAI.');
-      const result = completion.choices[0]?.message?.content || 'No response from AI.';
-      // --- END OpenAI API Call ---
+      } else {
+        // --- START Batch OpenAI API Call (Existing Logic) ---
+        logToServer('log', '[EmailContext] Starting batch email processing.');
+        // Prepare combined email content for the prompt
+        const emailContext = emails.map(email =>
+          `From: ${email.sender || 'N/A'}\\nSubject: ${email.subject || 'N/A'}\\nDate: ${new Date(email.date).toLocaleString()}\\n\\n${email.body || '(Body not fetched/available)'}`
+        ).join('\\n\\n---\\n\\n'); // Separate emails
 
+        const systemPrompt = prompt;
+        const userPrompt = `Here are the relevant emails:\\n\\n${emailContext}`;
 
-      // Save the query to history
-      // Ensure queryData exists, falling back if needed (should exist via fetchEmails)
+        // Log prompts to server
+        logToServer('log', '[EmailContext] System Prompt (User Request):', systemPrompt);
+        logToServer('log', '[EmailContext] User Prompt (Email Context):', userPrompt);
+
+        logToServer('log', '[EmailContext] Sending batch request to OpenAI...');
+        const completion = await openai.chat.completions.create({
+          model: settings.openaiModel,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+        });
+
+        logToServer('log', '[EmailContext] Received batch response from OpenAI.');
+        result = completion.choices[0]?.message?.content || 'No response from AI.';
+        // --- END Batch OpenAI API Call ---
+      }
+
+      // Save the query to history (using the final 'result')
       const queryDataToSave = emails[0]?.queryData || {
          dateRange: '', startDate: '', endDate: '', status: 'all', folder: 'INBOX', maxResults: 20
       };
       saveQueryToHistory(
         queryDataToSave,
         prompt,
-        result
+        result // Save the combined or single result
       );
 
-      return result;
+      return result; // Return the combined or single result
+
     } catch (error: any) {
-      // Keep console.error for actual client-side errors
+      // General error handling (e.g., if Promise.all fails catastrophically, though individual errors are caught above)
+      logToServer('error', '[EmailContext] Error processing emails:', error);
       console.error('Error processing emails with OpenAI:', error);
-      // Provide more specific error feedback
       let errorMessage = 'Failed to process emails with AI';
       if (error.response) {
-        // OpenAI API error
         errorMessage = `OpenAI Error: ${error.response.status} - ${error.response.data?.error?.message || error.message}`;
       } else if (error.request) {
-        // Network error
         errorMessage = 'Network error contacting OpenAI API.';
       } else {
-        // Other setup error
         errorMessage = error.message || errorMessage;
       }
       toast.error(errorMessage);
+      // Save history even on error, potentially with null result
+      const queryDataToSave = emails[0]?.queryData || { dateRange: '', startDate: '', endDate: '', status: 'all', folder: 'INBOX', maxResults: 20 };
+      saveQueryToHistory(queryDataToSave, prompt, `Error: ${errorMessage}`);
       throw new Error(errorMessage);
     } finally {
       setIsProcessing(false);
@@ -276,7 +304,7 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         return;
       }
       
-      const result = await processEmails(emails, historyItem.prompt);
+      const result = await processEmails(emails, historyItem.prompt, false);
       
       // Result is already saved to history within processEmails
       toast.success('Query rerun and processed successfully');

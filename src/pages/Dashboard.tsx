@@ -16,7 +16,9 @@ const Dashboard: React.FC = () => {
   const [emailCount, setEmailCount] = useState<number | null>(null);
   const [fetchedEmails, setFetchedEmails] = useState<any[]>([]);
   
-  const handleProcess = async (formData: any) => {
+  const handleProcess = async (data: { formData: any; processIndividually: boolean }) => {
+    const { formData, processIndividually } = data;
+
     if (!settings.emailConnected) {
       toast.error('Please connect your email in settings first');
       return;
@@ -52,7 +54,7 @@ const Dashboard: React.FC = () => {
         return;
       }
       
-      const processedResults = await processEmails(emails, finalPrompt);
+      const processedResults = await processEmails(emails, finalPrompt, processIndividually);
       setResults(processedResults);
     } catch (error) {
       toast.error('Error processing emails');
@@ -92,6 +94,7 @@ const Dashboard: React.FC = () => {
             </button>
           </div>
           
+          {/* Updated grid layout */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {/* Email filter form */}
             <div>
@@ -99,7 +102,7 @@ const Dashboard: React.FC = () => {
                 <Calendar className="w-5 h-5 mr-2 text-blue-500" />
                 Email Filters
               </h3>
-              <EmailFilterForm onSubmit={handleProcess} isLoading={isFetching} />
+              <EmailFilterForm onSubmit={handleProcess} isLoading={isFetching || isProcessing} />
             </div>
             
             {/* Prompt form */}

@@ -3,7 +3,7 @@ import DateRangePicker from './DateRangePicker';
 import { Clock, Filter } from 'lucide-react';
 
 interface EmailFilterFormProps {
-  onSubmit: (data: any) => void;
+  onSubmit: (data: { formData: any; processIndividually: boolean }) => void;
   isLoading: boolean;
 }
 
@@ -16,6 +16,7 @@ const EmailFilterForm: React.FC<EmailFilterFormProps> = ({ onSubmit, isLoading }
     maxResults: 20,
     folder: 'INBOX'
   });
+  const [processIndividually, setProcessIndividually] = useState(false);
   
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -55,7 +56,7 @@ const EmailFilterForm: React.FC<EmailFilterFormProps> = ({ onSubmit, isLoading }
   
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit(formData);
+    onSubmit({ formData, processIndividually });
   };
   
   return (
@@ -156,6 +157,19 @@ const EmailFilterForm: React.FC<EmailFilterFormProps> = ({ onSubmit, isLoading }
         <p className="mt-1 text-xs text-gray-500">
           Maximum number of emails to process
         </p>
+      </div>
+      
+      <div className="mt-4 flex items-center">
+        <input
+          type="checkbox"
+          id="processIndividually"
+          checked={processIndividually}
+          onChange={(e) => setProcessIndividually(e.target.checked)}
+          className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+        />
+        <label htmlFor="processIndividually" className="ml-2 block text-sm text-gray-900">
+          Process each email individually
+        </label>
       </div>
       
       <button
