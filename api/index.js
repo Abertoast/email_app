@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import Imap from 'imap'; // Use node-imap
 import { simpleParser } from 'mailparser'; // Import mailparser
+import util from 'util'; // Required for promisify
 // import { simpleParser } from 'mailparser'; // Needed to parse fetched message bodies - Removed as not currently used
 
 console.log('[api/index.js] Module loaded by Vercel runtime.');
@@ -65,6 +66,130 @@ function createImapConnection(config) {
   return new Imap(imapConfig);
 }
 
+// Helper function to fetch and parse emails from a specific folder
+async function fetchAndParseEmailsFromFolder(imap, folderName, searchCriteria, maxResultsPerFolder) {
+  const openBoxAsync = util.promisify(imap.openBox).bind(imap);
+  const searchAsync = util.promisify(imap.search).bind(imap);
+  const fetchedEmailsData = [];
+
+  try {
+    console.log(`[fetchAndParseEmailsFromFolder] Opening box: ${folderName}`);
+    const box = await openBoxAsync(folderName, true); // true for read-only
+    console.log(`[fetchAndParseEmailsFromFolder] Mailbox ${folderName} opened. Total messages: ${box.messages.total}`);
+
+    if (box.messages.total === 0) {
+      console.log(`[fetchAndParseEmailsFromFolder] No messages in ${folderName}, skipping search.`);
+      return []; // Return empty array if no messages
+    }
+
+    console.log(`[fetchAndParseEmailsFromFolder] Searching ${folderName} with criteria: ${JSON.stringify(searchCriteria)}`);
+    const uids = await searchAsync(searchCriteria);
+
+    console.log(`[fetchAndParseEmailsFromFolder] Found ${uids.length} UIDs in ${folderName}.`);
+    if (uids.length === 0) {
+      return []; // No matching messages
+    }
+
+    // Apply per-folder limit *before* fetching details
+    const limitedUIDs = uids.slice(-maxResultsPerFolder);
+    console.log(`[fetchAndParseEmailsFromFolder] Fetching details for ${limitedUIDs.length} UIDs from ${folderName} (maxResultsPerFolder: ${maxResultsPerFolder}).`);
+
+    if (limitedUIDs.length === 0) {
+        return []; // Should not happen if uids.length > 0, but safe check
+    }
+
+    return new Promise((resolve, reject) => {
+      const fetchPromises = [];
+      const fetch = imap.fetch(limitedUIDs, {
+        bodies: '',
+        markSeen: false,
+        struct: true,
+        fetchspec: 'X-GM-LABELS'
+      });
+
+      fetch.on('message', (msg, seqno) => {
+        let attributes = null;
+        let msgSource = '';
+
+        msg.on('body', (stream) => {
+          stream.on('data', (chunk) => {
+            msgSource += chunk.toString('utf8');
+          });
+        });
+
+        msg.once('attributes', (attrs) => {
+          attributes = attrs;
+        });
+
+        const parsePromise = new Promise((resolveParse) => {
+          msg.once('end', async () => {
+            const currentUid = attributes?.uid || 'N/A';
+            if (!attributes) {
+              console.warn(`[fetchAndParseEmailsFromFolder] No attributes for message #${seqno} in ${folderName}, skipping.`);
+              resolveParse();
+              return;
+            }
+            try {
+              // console.log(`[fetchAndParseEmailsFromFolder] Parsing UID: ${currentUid} from ${folderName}`); // Reduced logging verbosity
+              const parsed = await simpleParser(msgSource);
+              fetchedEmailsData.push({
+                id: attributes.uid,
+                sender: parsed.from?.text || '(no sender)',
+                subject: parsed.subject || '(no subject)',
+                date: attributes.date,
+                read: attributes.flags.includes('\\Seen'),
+                flags: attributes['x-gm-labels'] || attributes.flags || [], // Fallback to flags if x-gm-labels not present
+                body: parsed.text || (parsed.html ? '[HTML content only]' : '(no text body found)'),
+                folder: folderName // Add folder information
+              });
+              // console.log(`[fetchAndParseEmailsFromFolder] Successfully parsed UID: ${currentUid} from ${folderName}`); // Reduced logging verbosity
+              resolveParse();
+            } catch (parseErr) {
+              console.error(`[fetchAndParseEmailsFromFolder] Error parsing UID ${currentUid} in ${folderName}:`, parseErr.message);
+              fetchedEmailsData.push({
+                id: attributes.uid,
+                sender: '(parse error)',
+                subject: '(parse error)',
+                date: attributes.date,
+                read: attributes.flags.includes('\\Seen'),
+                flags: attributes['x-gm-labels'] || attributes.flags || [],
+                body: `(parse error: ${parseErr.message})`,
+                folder: folderName // Add folder information even on error
+              });
+              resolveParse();
+            }
+          });
+        });
+        fetchPromises.push(parsePromise);
+      });
+
+      fetch.once('error', (fetchErr) => {
+        console.error(`[fetchAndParseEmailsFromFolder] Fetch stream error in ${folderName}:`, fetchErr);
+        reject(new Error(`Fetch stream error in ${folderName}: ${fetchErr.message}`)); // Reject the main promise
+      });
+
+      fetch.once('end', async () => {
+        console.log(`[fetchAndParseEmailsFromFolder] Finished fetch stream for ${folderName}. Waiting for parsers...`);
+        try {
+          await Promise.all(fetchPromises);
+          console.log(`[fetchAndParseEmailsFromFolder] Parsers finished for ${folderName}. Processed ${fetchedEmailsData.length} emails.`);
+          // Don't close the box here, let the main function handle it or reuse connection
+          resolve(fetchedEmailsData); // Resolve the main promise with the fetched data
+        } catch (allPromisesError) {
+          console.error(`[fetchAndParseEmailsFromFolder] Error during Promise.all for ${folderName}:`, allPromisesError);
+          reject(allPromisesError); // Reject the main promise
+        }
+      });
+    });
+  } catch (err) {
+      console.error(`[fetchAndParseEmailsFromFolder] Error processing folder ${folderName}:`, err);
+      // Don't close box here either. Let the caller handle IMAP connection state.
+      // Propagate the error so Promise.all catches it if needed, or return empty array to continue?
+      // Returning empty allows fetching from other folders to continue.
+      return []; // Return empty array on error to allow processing other folders
+  }
+}
+
 // Fetch emails endpoint using node-imap
 app.post('/api/fetchEmails', (req, res) => {
   const {
@@ -72,7 +197,8 @@ app.post('/api/fetchEmails', (req, res) => {
     imapPort,
     email,
     password,
-    folder = 'INBOX',
+    folder = 'INBOX', // Default if fetchAllFolders is false
+    fetchAllFolders = false, // New parameter
     startDate,
     endDate,
     status = 'all',
@@ -85,150 +211,133 @@ app.post('/api/fetchEmails', (req, res) => {
     return res.status(400).json({ error: 'Missing IMAP connection details' });
   }
 
-  console.log(`[API /api/fetchEmails] Config: host=${imapHost}, port=${imapPort}, user=${email}, folder=${folder}`);
+  console.log(`[API /api/fetchEmails] Config: host=${imapHost}, port=${imapPort}, user=${email}, fetchAllFolders=${fetchAllFolders}, targetFolder=${folder}`);
 
   const imap = createImapConnection({ imapHost, imapPort, email, password });
+  let connectionEnded = false; // Flag to prevent multiple responses
 
   function handleImapError(err, context = '') {
     console.error(`[API /api/fetchEmails] IMAP Error${context ? ' (' + context + ')' : ''}:`, err);
-    try {
-      imap.end();
-    } catch (_) {}
+    if (!connectionEnded) {
+        connectionEnded = true;
+        try {
+          imap.end();
+        } catch (_) {}
+    }
     if (!res.headersSent) {
       return res.status(500).json({ error: err.message || `IMAP connection error${context ? ' during ' + context : ''}` });
     }
   }
 
-  imap.once('error', (err) => handleImapError(err, 'general'));
+  imap.once('error', (err) => handleImapError(err, 'general connection'));
 
-  imap.once('ready', () => {
+  imap.once('ready', async () => {
     console.log('[API /api/fetchEmails] IMAP connection ready.');
-    imap.openBox(folder, false, (err, box) => { // false for read-write (needed? maybe not, but safer)
-      if (err) return handleImapError(err, `opening mailbox ${folder}`);
-      console.log(`[API /api/fetchEmails] Mailbox ${folder} opened. Total messages: ${box.messages.total}`);
 
-      let searchCriteria = [];
-      if (status === 'unread') searchCriteria.push('UNSEEN');
-      else if (status === 'read') searchCriteria.push('SEEN');
-      if (startDate) searchCriteria.push(['SINCE', new Date(`${startDate}T00:00:00.000Z`).toUTCString()]);
-      if (endDate) {
-        const endDateStartOfDayUTC = new Date(`${endDate}T00:00:00.000Z`);
-        const beforeDate = new Date(endDateStartOfDayUTC.getTime() + 24 * 60 * 60 * 1000);
-        searchCriteria.push(['BEFORE', beforeDate.toUTCString()]);
-      }
-      if (subjectSearchTerm && subjectSearchTerm.trim() !== '') {
-        searchCriteria.push(['SUBJECT', subjectSearchTerm.trim()]);
-      }
-      if (searchCriteria.length === 0) searchCriteria = ['ALL'];
+    // --- Build Search Criteria ---
+    let searchCriteria = [];
+    if (status === 'unread') searchCriteria.push('UNSEEN');
+    else if (status === 'read') searchCriteria.push('SEEN');
+    if (startDate) searchCriteria.push(['SINCE', new Date(`${startDate}T00:00:00.000Z`).toUTCString()]);
+    if (endDate) {
+      const endDateStartOfDayUTC = new Date(`${endDate}T00:00:00.000Z`);
+      const beforeDate = new Date(endDateStartOfDayUTC.getTime() + 24 * 60 * 60 * 1000);
+      searchCriteria.push(['BEFORE', beforeDate.toUTCString()]);
+    }
+    if (subjectSearchTerm && subjectSearchTerm.trim() !== '') {
+      searchCriteria.push(['SUBJECT', subjectSearchTerm.trim()]);
+    }
+    if (searchCriteria.length === 0) searchCriteria = ['ALL'];
+    console.log(`[API /api/fetchEmails] Using search criteria: ${JSON.stringify(searchCriteria)}`);
+    // --- End Build Search Criteria ---
 
-      console.log(`[API /api/fetchEmails] Searching with criteria: ${JSON.stringify(searchCriteria)}`);
+    try {
+        let allFetchedEmails = [];
 
-      imap.search(searchCriteria, (searchErr, uids) => {
-        if (searchErr) return handleImapError(searchErr, 'searching mailbox');
+        if (fetchAllFolders) {
+            const getBoxesAsync = util.promisify(imap.getBoxes).bind(imap);
+            console.log('[API /api/fetchEmails] Fetching all folders...');
+            const boxes = await getBoxesAsync();
+            const folderPromises = [];
+            const folderNames = [];
 
-        console.log(`[API /api/fetchEmails] Found ${uids.length} UIDs matching criteria.`);
-        if (uids.length === 0) {
-          imap.end();
-          return res.json({ emails: [] });
+            // Function to recursively get folder names
+            function flattenFolders(boxHierarchy, prefix = '') {
+                Object.keys(boxHierarchy).forEach(name => {
+                    const currentPath = prefix ? `${prefix}${boxHierarchy[name].delimiter}${name}` : name;
+                    // Add the folder itself if it's not marked as NoSelect (e.g., [Gmail] container)
+                    if (!boxHierarchy[name].attribs.includes('\\Noselect')) {
+                        folderNames.push(currentPath);
+                    }
+                    // Recurse if there are children
+                    if (boxHierarchy[name].children && Object.keys(boxHierarchy[name].children).length > 0) {
+                        flattenFolders(boxHierarchy[name].children, currentPath);
+                    }
+                });
+            }
+
+            flattenFolders(boxes);
+            console.log(`[API /api/fetchEmails] Found folders: ${folderNames.join(', ')}`);
+
+            // Heuristic: Fetch slightly more emails per folder than maxResults to improve chances
+            // of getting the *actual* most recent across all folders, then limit at the end.
+            // Adjust this multiplier as needed. If maxResults is small, fetch more.
+            const perFolderLimit = Math.max(10, Math.ceil(maxResults * 1.5 / Math.max(1, folderNames.length)));
+            console.log(`[API /api/fetchEmails] Fetching up to ${perFolderLimit} emails per folder.`);
+
+
+            for (const folderName of folderNames) {
+                // Avoid fetching from folders known not to contain user mail or causing issues
+                 if (folderName.toUpperCase() === '[GMAIL]' || folderName.toUpperCase().includes('\\NOSELECT')) {
+                     console.log(`[API /api/fetchEmails] Skipping folder: ${folderName}`);
+                     continue;
+                 }
+                // We run promises sequentially to avoid overwhelming the server and reuse the connection state better
+                // Although node-imap can handle parallel commands, sequential opening/closing of boxes is safer.
+                try {
+                    const emailsFromFolder = await fetchAndParseEmailsFromFolder(imap, folderName, searchCriteria, perFolderLimit);
+                    allFetchedEmails.push(...emailsFromFolder);
+                    console.log(`[API /api/fetchEmails] Fetched ${emailsFromFolder.length} emails from ${folderName}. Total so far: ${allFetchedEmails.length}`);
+                } catch (folderError) {
+                    console.error(`[API /api/fetchEmails] Error fetching from folder ${folderName}:`, folderError.message);
+                    // Continue to the next folder even if one fails
+                }
+                 // Close the current box implicitly by opening the next one or explicitly if needed?
+                 // node-imap handles closing the previous box when opening a new one.
+            }
+            console.log(`[API /api/fetchEmails] Finished fetching from all folders. Total emails collected: ${allFetchedEmails.length}`);
+
+        } else {
+            // Fetch from single specified folder
+            console.log(`[API /api/fetchEmails] Fetching from single folder: ${folder}`);
+             try {
+                allFetchedEmails = await fetchAndParseEmailsFromFolder(imap, folder, searchCriteria, maxResults);
+             } catch (folderError) {
+                console.error(`[API /api/fetchEmails] Error fetching from single folder ${folder}:`, folderError.message);
+                // If the single requested folder fails, we should probably error out
+                return handleImapError(folderError, `fetching from folder ${folder}`);
+            }
         }
 
-        const limitedUIDs = uids.slice(-maxResults);
-        console.log(`[API /api/fetchEmails] Fetching details for ${limitedUIDs.length} UIDs (maxResults: ${maxResults}).`);
+        // --- Process Final Results ---
+        console.log(`[API /api/fetchEmails] Sorting ${allFetchedEmails.length} total emails by date.`);
+        allFetchedEmails.sort((a, b) => (b.date || 0) - (a.date || 0));
 
-        const fetchPromises = [];
-        const fetchedEmailsData = [];
+        const finalEmails = allFetchedEmails.slice(0, maxResults);
+        console.log(`[API /api/fetchEmails] Returning final ${finalEmails.length} emails (maxResults: ${maxResults}).`);
 
-        const fetch = imap.fetch(limitedUIDs, {
-          bodies: '', // Fetch entire raw message source
-          markSeen: false,
-          struct: true, // Optional, but useful for mailparser
-          fetchspec: 'X-GM-LABELS' // Explicitly request Gmail labels
-        });
-
-        fetch.on('message', (msg, seqno) => {
-          console.log(`[API /api/fetchEmails] Receiving message #${seqno}`);
-          let attributes = null;
-          let msgSource = '';
-
-          msg.on('body', (stream) => {
-            stream.on('data', (chunk) => {
-              msgSource += chunk.toString('utf8');
-            });
-          });
-
-          msg.once('attributes', (attrs) => {
-            attributes = attrs;
-          });
-
-          // Create a promise for parsing this specific message
-          const parsePromise = new Promise((resolve) => {
-            msg.once('end', async () => {
-              const currentUid = attributes?.uid || 'N/A'; // Get UID for logging
-              console.log(`[API /api/fetchEmails] Finished receiving message #${seqno} (UID: ${currentUid}). Attempting to parse...`);
-              console.log('[API /api/fetchEmails] Attributes received:', attributes); // Log attributes to check for x-gm-labels
-
-              if (!attributes) {
-                console.warn(`[API /api/fetchEmails] No attributes found for message #${seqno}, skipping.`);
-                resolve();
-                return;
-              }
-              try {
-                // Log just before parsing
-                console.log(`[API /api/fetchEmails] Parsing UID: ${currentUid}`);
-                const parsed = await simpleParser(msgSource);
-                fetchedEmailsData.push({
-                  id: attributes.uid,
-                  sender: parsed.from?.text || '(no sender)',
-                  subject: parsed.subject || '(no subject)',
-                  date: attributes.date,
-                  read: attributes.flags.includes('\\Seen'),
-                  flags: attributes['x-gm-labels'] || [], // Use x-gm-labels for Gmail
-                  body: parsed.text || (parsed.html ? '[HTML content only]' : '(no text body found)')
-                });
-                console.log(`[API /api/fetchEmails] Successfully parsed UID: ${currentUid}`);
-                resolve();
-              } catch (parseErr) {
-                // Log the full error object
-                console.error(`[API /api/fetchEmails] Error parsing message UID: ${currentUid}:`, JSON.stringify(parseErr, Object.getOwnPropertyNames(parseErr)));
-                fetchedEmailsData.push({
-                  id: attributes.uid,
-                  sender: '(parse error)',
-                  subject: '(parse error)',
-                  date: attributes.date,
-                  read: attributes.flags.includes('\\Seen'),
-                  flags: attributes['x-gm-labels'] || [], // Use x-gm-labels for Gmail even on parse error
-                  body: `(parse error: ${parseErr.message})` // Include error message in body
-                });
-                resolve(); // Still resolve
-              }
-            });
-          });
-          fetchPromises.push(parsePromise);
-        });
-
-        fetch.once('error', (fetchErr) => {
-          console.error('[API /api/fetchEmails] Fetch stream error:', fetchErr);
-        });
-
-        fetch.once('end', async () => {
-          console.log('[API /api/fetchEmails] Finished fetch stream. Waiting for all parsers...');
-          try {
-            await Promise.all(fetchPromises);
-            console.log(`[API /api/fetchEmails] All parsers finished. Processed ${fetchedEmailsData.length} emails.`);
+        if (!connectionEnded) {
+            connectionEnded = true;
             imap.end();
+        }
+        if (!res.headersSent) {
+            res.json({ emails: finalEmails });
+        }
+        // --- End Process Final Results ---
 
-            fetchedEmailsData.sort((a, b) => (b.date || 0) - (a.date || 0));
-            if (!res.headersSent) {
-                return res.json({ emails: fetchedEmailsData });
-            }
-          } catch (allPromisesError) {
-             // Added explicit catch for Promise.all
-             console.error('[API /api/fetchEmails] Error during Promise.all email processing:', allPromisesError);
-             handleImapError(allPromisesError, 'processing fetched messages');
-          }
-        });
-      });
-    });
+    } catch (err) {
+      handleImapError(err, 'processing folders/emails');
+    }
   });
 
   imap.connect();

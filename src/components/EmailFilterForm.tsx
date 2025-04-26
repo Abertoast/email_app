@@ -15,13 +15,24 @@ const EmailFilterForm: React.FC<EmailFilterFormProps> = ({ onSubmit, isLoading }
     status: 'unread',
     maxResults: 20,
     folder: 'INBOX',
-    subjectSearchTerm: ''
+    subjectSearchTerm: '',
+    fetchAllFolders: false,
   });
   const [processIndividually, setProcessIndividually] = useState(false);
   
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    const { name, value, type } = e.target;
+
+    if (type === 'checkbox') {
+        const { checked } = e.target as HTMLInputElement;
+        setFormData(prev => ({
+          ...prev,
+          [name]: checked,
+          ...(name === 'fetchAllFolders' && !checked && { folder: 'INBOX' })
+        }));
+    } else {
+        setFormData(prev => ({ ...prev, [name]: value }));
+    }
   };
   
   const handleDateRangeChange = (range: string) => {
@@ -126,20 +137,40 @@ const EmailFilterForm: React.FC<EmailFilterFormProps> = ({ onSubmit, isLoading }
       </div>
       
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
+        <label htmlFor="folder" className="block text-sm font-medium text-gray-700 mb-1">
           Folder
         </label>
         <select
+          id="folder"
           name="folder"
           value={formData.folder}
           onChange={handleChange}
-          className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          disabled={formData.fetchAllFolders}
+          className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+            formData.fetchAllFolders ? 'bg-gray-100 cursor-not-allowed' : ''
+          }`}
         >
           <option value="INBOX">Inbox</option>
           <option value="[Gmail]/Sent Mail">Sent Mail</option>
           <option value="[Gmail]/Drafts">Drafts</option>
           <option value="[Gmail]/Starred">Starred</option>
+          <option value="[Gmail]/All Mail">All Mail (Gmail)</option>
+          <option value="Archive">Archive</option>
         </select>
+      </div>
+      
+      <div className="flex items-center">
+        <input
+          type="checkbox"
+          id="fetchAllFolders"
+          name="fetchAllFolders"
+          checked={formData.fetchAllFolders}
+          onChange={handleChange}
+          className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+        />
+        <label htmlFor="fetchAllFolders" className="ml-2 block text-sm text-gray-900">
+          Fetch from all folders (includes Archive, etc.)
+        </label>
       </div>
       
       <div>
