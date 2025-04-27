@@ -3,7 +3,7 @@ import DateRangePicker from './DateRangePicker';
 import { Clock, Filter } from 'lucide-react';
 
 interface EmailFilterFormProps {
-  onSubmit: (data: { formData: any; processIndividually: boolean }) => void;
+  onSubmit: (data: { formData: any; processIndividually: boolean; groupBySubject: boolean }) => void;
   isLoading: boolean;
 }
 
@@ -19,6 +19,7 @@ const EmailFilterForm: React.FC<EmailFilterFormProps> = ({ onSubmit, isLoading }
     fetchAllFolders: false,
   });
   const [processIndividually, setProcessIndividually] = useState(false);
+  const [groupBySubject, setGroupBySubject] = useState(true);
   
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target;
@@ -68,7 +69,7 @@ const EmailFilterForm: React.FC<EmailFilterFormProps> = ({ onSubmit, isLoading }
   
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit({ formData, processIndividually });
+    onSubmit({ formData, processIndividually, groupBySubject });
   };
   
   return (
@@ -206,6 +207,19 @@ const EmailFilterForm: React.FC<EmailFilterFormProps> = ({ onSubmit, isLoading }
         <p className="mt-1 text-xs text-gray-500">
           Maximum number of emails to fetch
         </p>
+      </div>
+      
+      <div className="mt-4 flex items-center">
+        <input
+          type="checkbox"
+          id="groupBySubject"
+          checked={groupBySubject}
+          onChange={(e) => setGroupBySubject(e.target.checked)}
+          className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+        />
+        <label htmlFor="groupBySubject" className="ml-2 block text-sm text-gray-900">
+          Group emails by subject (show newest only)
+        </label>
       </div>
       
       <div className="mt-4 flex items-center">
