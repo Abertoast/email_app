@@ -1,5 +1,5 @@
 {
-  "updateId": "20240519-prompt-tags",
+  "updateId": "20240517-prompt-tags",
   "title": "New Feature: Prompt Tags!",
   "description": "You can now define custom tags (like **[[Action Item]]** or **[[Urgent]]**) in the Prompt Library!\n\nInstruct the AI (via your prompt) to include these tags in its response based on the email content. The app will automatically parse these tags, display them as colored labels on the results, and allow you to filter your processed emails by these tags.\n\nCheck out the 'Tags' section in the Prompt Library to get started!"
 } 

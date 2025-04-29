@@ -1,13 +1,14 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { Mail, Settings as SettingsIcon, BookOpen, History, Menu, X } from 'lucide-react';
+import { Mail, Settings as SettingsIcon, BookOpen, History, Menu, X, RefreshCw } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 
 interface LayoutProps {
   children: React.ReactNode;
+  isUpdateAvailableForRefresh: boolean;
 }
 
-const Layout: React.FC<LayoutProps> = ({ children }) => {
+const Layout: React.FC<LayoutProps> = ({ children, isUpdateAvailableForRefresh }) => {
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
   const { settings } = useSettings();
   
@@ -59,22 +60,51 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 <span>{item.name}</span>
               </NavLink>
             ))}
+            <NavLink
+              to="/settings"
+              className={({ isActive }) => 
+                `flex items-center px-4 py-3 text-gray-600 transition-colors duration-200 rounded-md ${
+                  isActive 
+                    ? 'bg-blue-50 text-blue-600' 
+                    : 'hover:bg-gray-100'
+                }`
+              }
+              onClick={() => setSidebarOpen(false)}
+            >
+              <SettingsIcon size={20} className="mr-3" />
+              <span>Settings</span>
+            </NavLink>
           </nav>
           
-          <div className="px-4 py-6 border-t border-gray-200">
-            <div className="flex items-center">
-              <div className="w-2 h-2 mr-2 rounded-full bg-green-500"></div>
-              <span className="text-sm font-medium text-gray-700">
-                {settings.emailConnected ? 'Email Connected' : 'Email Disconnected'}
-              </span>
-            </div>
-            <div className="flex items-center mt-2">
-              <div className="w-2 h-2 mr-2 rounded-full bg-blue-500"></div>
-              <span className="text-sm font-medium text-gray-700">
-                {settings.openaiApiKey ? 'API Connected' : 'API Disconnected'}
-              </span>
-            </div>
-          </div>
+          {/* Bottom section with status */}
+          <div className="px-4 py-6 border-t border-gray-200 space-y-3">
+            {/* Conditionally render update indicator HERE */}
+            {isUpdateAvailableForRefresh && (
+                <div 
+                   className="flex items-center text-xs text-yellow-700 bg-yellow-100 px-2 py-1 rounded-md animate-pulse"
+                   title="Application update available. Please refresh the page."
+                 >
+                    <RefreshCw size={12} className="mr-1.5 flex-shrink-0"/>
+                    <span>Refresh page for update</span>
+                </div>
+             )}
+           {/* Email Status */}
+           <div className="flex items-center">
+             {/* Status Dot Logic */}
+             <div className={`w-2.5 h-2.5 mr-2 rounded-full ${settings.emailConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
+             <span className="text-sm font-medium text-gray-700">
+               {settings.emailConnected ? 'Email Connected' : 'Email Disconnected'}
+             </span>
+           </div>
+            {/* API Status */}
+           <div className="flex items-center mt-2"> {/* Consider removing mt-2 if space-y-3 is enough */}
+             {/* Status Dot Logic */}
+             <div className={`w-2.5 h-2.5 mr-2 rounded-full ${settings.openaiApiKey ? 'bg-blue-500' : 'bg-gray-400'}`}></div>
+             <span className="text-sm font-medium text-gray-700">
+               {settings.openaiApiKey ? 'API Connected' : 'API Disconnected'}
+             </span>
+           </div>
+         </div>
         </div>
       </div>
       

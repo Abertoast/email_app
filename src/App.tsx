@@ -15,6 +15,7 @@ function App() {
   const [updateTitle, setUpdateTitle] = useState('');
   const [updateDescription, setUpdateDescription] = useState('');
   const [currentUpdateId, setCurrentUpdateId] = useState<string | null>(null);
+  const [isUpdateAvailableForRefresh, setIsUpdateAvailableForRefresh] = useState(false);
 
   const updateLocalStorageKey = 'emailai-last-seen-update-id';
 
@@ -58,6 +59,53 @@ function App() {
     checkForUpdates();
   }, []); // Empty dependency array ensures this runs only once on mount
 
+  // Effect to check for updates when window gains focus (sets refresh indicator)
+  useEffect(() => {
+    const handleFocusCheck = async () => {
+      // Only run check if we have successfully loaded an initial update ID
+      if (!currentUpdateId) return;
+      
+      console.log('[AppFocusCheck] Window focused, checking for background update...');
+      try {
+        // Fetch the latest update info again
+        const response = await fetch('/latest-update.json?cacheBust=' + Date.now()); // Add cache busting
+        if (!response.ok) {
+          // Don't show indicator if fetch fails
+          console.warn('[AppFocusCheck] Failed to fetch update info on focus.');
+          return;
+        }
+        const updateData = await response.json();
+
+        if (updateData && updateData.updateId) {
+          const latestFetchedId = updateData.updateId;
+          console.log('[AppFocusCheck] Fetched update ID on focus:', latestFetchedId);
+          console.log('[AppFocusCheck] Update ID from initial load:', currentUpdateId);
+          
+          // If the latest ID differs from the one loaded initially, flag for refresh
+          if (latestFetchedId !== currentUpdateId) {
+            console.log('[AppFocusCheck] Update detected in background. Setting refresh indicator.');
+            setIsUpdateAvailableForRefresh(true);
+          } else {
+             console.log('[AppFocusCheck] No change detected since initial load.');
+          }
+        }
+      } catch (error) {
+        console.error('[AppFocusCheck] Error checking for updates on focus:', error);
+      }
+    };
+
+    // Add event listener
+    window.addEventListener('focus', handleFocusCheck);
+    console.log('[AppFocusCheck] Focus event listener added.');
+
+    // Cleanup listener on unmount
+    return () => {
+      window.removeEventListener('focus', handleFocusCheck);
+      console.log('[AppFocusCheck] Focus event listener removed.');
+    };
+    // Depend on currentUpdateId so the check uses the correct comparison value
+  }, [currentUpdateId]); 
+
   // Handler for closing the modal and updating localStorage
   const handleCloseUpdateModal = () => {
     setIsUpdateModalOpen(false);
@@ -71,7 +119,7 @@ function App() {
     <Router>
       <SettingsProvider>
         <EmailProvider>
-          <Layout>
+          <Layout isUpdateAvailableForRefresh={isUpdateAvailableForRefresh}>
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/settings" element={<Settings />} />
