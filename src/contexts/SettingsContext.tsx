@@ -22,6 +22,14 @@ export interface PromptVariable {
   value: string;
 }
 
+// Define the Tag interface
+export interface Tag {
+  id: string;       // Unique identifier
+  name: string;     // User-friendly name (e.g., "Action Item") - Must be unique
+  marker: string;   // Marker string (e.g., "[[Action Item]]") - Must be unique
+  color: string;    // Hex color code (e.g., "#FF5733")
+}
+
 interface Settings {
   imapHost: string;
   imapPort: number;
@@ -39,6 +47,7 @@ interface SettingsContextType {
   settings: Settings;
   savedPrompts: SavedPrompt[];
   promptVariables: PromptVariable[];
+  tags: Tag[]; // Add tags state to context type
   updateSettings: (newSettings: Partial<Settings>) => Promise<void>;
   testEmailConnection: (testSettings: Partial<EmailSettings>) => Promise<{ success: boolean; error?: string }>;
   addPrompt: (prompt: SavedPrompt) => void;
@@ -47,6 +56,9 @@ interface SettingsContextType {
   addVariable: (variable: Omit<PromptVariable, 'id'>) => void;
   updateVariable: (variable: PromptVariable) => void;
   deleteVariable: (id: string) => void;
+  addTag: (tag: Omit<Tag, 'id'>) => void; // Add tag functions
+  updateTag: (tag: Tag) => void;
+  deleteTag: (id: string) => void;
 }
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
@@ -75,6 +87,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   
   const [savedPrompts, setSavedPrompts] = useState<SavedPrompt[]>([]);
   const [promptVariables, setPromptVariables] = useState<PromptVariable[]>([]);
+  const [tags, setTags] = useState<Tag[]>([]); // Add tags state
   
   // Load settings from localStorage
   useEffect(() => {
@@ -146,6 +159,25 @@ In cases where there are no clear tasks assigned to {USERNAME} respond only with
       ];
       setPromptVariables(defaultVariables);
       localStorage.setItem('emailai-prompt-variables', JSON.stringify(defaultVariables));
+    }
+
+    // Load tags
+    const storedTags = localStorage.getItem('emailai-tags');
+    if (storedTags) {
+      try {
+        setTags(JSON.parse(storedTags));
+      } catch (error) {
+        console.error('Failed to parse stored tags', error);
+      }
+    } else {
+      // Optional: Set default tags if none exist (or leave empty)
+      const defaultTags: Tag[] = [
+        { id: uuidv4(), name: 'Action Item', marker: '[[Action Item]]', color: '#4CAF50'},
+        { id: uuidv4(), name: 'Urgent', marker: '[[Urgent]]', color: '#f44336'},
+        { id: uuidv4(), name: 'Follow Up', marker: '[[Follow Up]]', color: '#2196F3'},
+      ];
+      setTags(defaultTags);
+      localStorage.setItem('emailai-tags', JSON.stringify(defaultTags));
     }
   }, []);
   
@@ -251,21 +283,98 @@ In cases where there are no clear tasks assigned to {USERNAME} respond only with
 
   // --- End Prompt Variable Management ---
 
-  return (
-    <SettingsContext.Provider value={{
-      settings,
-      savedPrompts,
-      promptVariables,
-      updateSettings,
-      testEmailConnection,
-      addPrompt,
-      updatePrompt,
-      deletePrompt,
-      addVariable,
-      updateVariable,
-      deleteVariable
-    }}>
-      {children}
-    </SettingsContext.Provider>
-  );
+  // --- Tag Management ---
+
+  const addTag = (tag: Omit<Tag, 'id'>) => {
+      const name = tag.name.trim();
+      const marker = tag.marker.trim();
+
+      // Validation
+      if (!name) {
+          console.error("Tag name cannot be empty.");
+          // TODO: Provide user feedback (e.g., toast notification)
+          return;
+      }
+      if (!marker.match(/^\[\[.+\]\]$/)) {
+          console.error("Tag marker must be in the format [[Marker Name]].");
+          // TODO: Provide user feedback
+          return;
+      }
+      if (tags.some(t => t.name.toLowerCase() === name.toLowerCase())) {
+          console.error(`Tag with name "${name}" already exists (case-insensitive).`);
+          // TODO: Provide user feedback
+          return;
+      }
+      if (tags.some(t => t.marker.toLowerCase() === marker.toLowerCase())) {
+          console.error(`Tag with marker "${marker}" already exists (case-insensitive).`);
+          // TODO: Provide user feedback
+          return;
+      }
+
+      const newTag: Tag = { ...tag, name, marker, id: uuidv4() };
+      const newTags = [...tags, newTag];
+      setTags(newTags);
+      localStorage.setItem('emailai-tags', JSON.stringify(newTags));
+  };
+
+  const updateTag = (tag: Tag) => {
+      const name = tag.name.trim();
+      const marker = tag.marker.trim();
+
+      // Validation
+       if (!name) {
+          console.error("Tag name cannot be empty.");
+          // TODO: Provide user feedback
+          return;
+      }
+      if (!marker.match(/^\[\[.+\]\]$/)) {
+          console.error("Tag marker must be in the format [[Marker Name]].");
+          // TODO: Provide user feedback
+          return;
+      }
+      if (tags.some(t => t.id !== tag.id && t.name.toLowerCase() === name.toLowerCase())) {
+          console.error(`Tag with name "${name}" already exists (case-insensitive).`);
+          // TODO: Provide user feedback
+          return;
+      }
+      if (tags.some(t => t.id !== tag.id && t.marker.toLowerCase() === marker.toLowerCase())) {
+          console.error(`Tag with marker "${marker}" already exists (case-insensitive).`);
+          // TODO: Provide user feedback
+          return;
+      }
+
+      const newTags = tags.map(t =>
+          t.id === tag.id ? { ...tag, name, marker } : t
+      );
+      setTags(newTags);
+      localStorage.setItem('emailai-tags', JSON.stringify(newTags));
+  };
+
+  const deleteTag = (id: string) => {
+      const newTags = tags.filter(t => t.id !== id);
+      setTags(newTags);
+      localStorage.setItem('emailai-tags', JSON.stringify(newTags));
+  };
+
+  // --- End Tag Management ---
+
+  const value = {
+    settings,
+    savedPrompts,
+    promptVariables,
+    tags, // Provide tags in context value
+    updateSettings,
+    testEmailConnection,
+    addPrompt,
+    updatePrompt,
+    deletePrompt,
+    addVariable,
+    updateVariable,
+    deleteVariable,
+    addTag, // Provide tag functions
+    updateTag,
+    deleteTag,
+  };
+
+  return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;
 };

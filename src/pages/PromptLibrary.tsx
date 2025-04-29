@@ -3,6 +3,7 @@ import { Plus, Edit, Trash2, Save, X, Variable } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 import toast from 'react-hot-toast';
 import PromptVariablesManager from '../components/PromptVariablesManager';
+import TagManager from '../components/TagManager';
 
 interface PromptFormData {
   id: string;
@@ -11,7 +12,7 @@ interface PromptFormData {
 }
 
 const PromptLibrary: React.FC = () => {
-  const { savedPrompts, addPrompt, updatePrompt, deletePrompt, promptVariables } = useSettings();
+  const { savedPrompts, addPrompt, updatePrompt, deletePrompt, promptVariables, tags } = useSettings();
   const [isEditing, setIsEditing] = useState(false);
   const [currentPrompt, setCurrentPrompt] = useState<PromptFormData>({
     id: '',
@@ -92,6 +93,23 @@ const PromptLibrary: React.FC = () => {
       }, 0);
     }
   };
+
+  const handleInsertTagMarker = (marker: string) => {
+    if (promptTextareaRef.current) {
+      const textarea = promptTextareaRef.current;
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const text = textarea.value;
+      const newText = text.substring(0, start) + marker + text.substring(end);
+
+      setCurrentPrompt(prev => ({ ...prev, prompt: newText }));
+
+      setTimeout(() => {
+        textarea.selectionStart = textarea.selectionEnd = start + marker.length;
+        textarea.focus();
+      }, 0);
+    }
+  };
   
   return (
     <div className="max-w-4xl mx-auto">
@@ -148,12 +166,14 @@ const PromptLibrary: React.FC = () => {
                     onChange={handleChange}
                     rows={10}
                     className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
-                    placeholder="Enter your prompt here... You can use variables like {USERNAME}."
+                    placeholder="Enter your prompt here... You can use variables like {USERNAME} and tag markers like [[Action Item]]."
                     required
                   />
+                  {/* Insert Buttons Section */}
+                  {/* Variables */}
                   {promptVariables.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                       <span className="text-xs text-gray-500 self-center mr-1">Insert:</span>
+                     <div className="mt-2 flex flex-wrap gap-2 items-center">
+                       <span className="text-xs text-gray-500 self-center mr-1">Insert Variable:</span>
                       {promptVariables.map(variable => (
                         <button
                           key={variable.id}
@@ -163,6 +183,28 @@ const PromptLibrary: React.FC = () => {
                           title={`Insert {${variable.key}}`}
                         >
                           {`{${variable.key}}`}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {/* Tags */}
+                  {tags.length > 0 && (
+                     <div className="mt-1 flex flex-wrap gap-2 items-center"> {/* Use mt-1 for closer spacing */}
+                       <span className="text-xs text-gray-500 self-center mr-1">Insert Tag:</span>
+                      {tags.map(tag => (
+                        <button
+                          key={tag.id}
+                          type="button"
+                          onClick={() => handleInsertTagMarker(tag.marker)}
+                          className="px-2 py-1 rounded-md text-xs font-mono transition-colors border"
+                          style={{
+                            backgroundColor: tag.color + '20',
+                            borderColor: tag.color,
+                            color: tag.color
+                          }}
+                          title={`Insert ${tag.marker}`}
+                        >
+                          {tag.marker}
                         </button>
                       ))}
                     </div>
@@ -248,6 +290,10 @@ const PromptLibrary: React.FC = () => {
 
       <div className="mt-12">
         <PromptVariablesManager />
+      </div>
+
+      <div className="mt-12 pt-8 border-t border-gray-200">
+        <TagManager />
       </div>
     </div>
   );

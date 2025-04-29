@@ -58,50 +58,59 @@ The application follows a client-server architecture, but with a heavy emphasis 
     -   The main `Layout` component.
     -   `react-hot-toast` configuration (`Toaster`).
 -   **Structure**:
-    -   `components/`: Reusable UI components (e.g., `Layout.tsx`, `EmailFilterForm.tsx`, `SavedPromptSelector.tsx`, `ProcessingResults.tsx`).
+    -   `components/`: Reusable UI components (e.g., `Layout.tsx`, `EmailFilterForm.tsx`, `SavedPromptSelector.tsx`, `ProcessingResults.tsx`, `PromptVariablesManager.tsx`, `TagManager.tsx`).
     -   `contexts/`: React Context providers for global state (`SettingsContext.tsx`, `EmailContext.tsx`).
     -   `pages/`: Top-level components for each route (`Dashboard.tsx`, `Settings.tsx`, `PromptLibrary.tsx`, `QueryHistory.tsx`).
     -   `utils/`: Utility functions (e.g., `promptUtils.ts` for variable substitution).
 -   **State Management**:
     -   **`SettingsContext.tsx`**:
         -   Manages IMAP/SMTP settings, OpenAI API key/model/temperature, and email connection status.
-        -   Manages saved prompts and prompt variables (e.g., `{USERNAME}`, `{EMAIL}`).
-        -   Loads/saves all settings, prompts, and variables to `localStorage`.
+        -   Manages saved prompts (`SavedPrompt[]`), prompt variables (`PromptVariable[]`), and **prompt tags (`Tag[]`)**. The `Tag` interface includes `id`, `name` (unique), `marker` (unique, e.g., `[[TagName]]`), and `color`.
+        -   Loads/saves all settings, prompts, variables, and **tags** to `localStorage` (keys: `emailai-settings`, `emailai-prompts`, `emailai-prompt-variables`, `emailai-tags`).
         -   Provides `testEmailConnection` function (calls backend `/api/testConnection`).
-        -   Provides functions to add/update/delete prompts and variables.
-        -   Initializes with default settings (Gmail IMAP/SMTP) and example prompts/variables if none are found in `localStorage`.
+        -   Provides CRUD functions to add/update/delete prompts, variables, and **tags**.
+        -   Initializes with default settings, example prompts/variables, and **example tags** if none are found in `localStorage`.
     -   **`EmailContext.tsx`**:
         -   Manages email fetching and processing state (`isFetching`, `isProcessing`).
-        -   Manages query history (`queryHistory`) and latest processing results (`latestResults`).
+        -   Manages query history (`queryHistory`) and latest processing results (`latestResults`). The structure for results when processed individually (`ProcessedEmailResult`) now includes a `tags: string[]` array intended to hold extracted tag names.
         -   Provides `fetchEmails` function: retrieves settings from `SettingsContext`, calls backend `/api/fetchEmails`, returns fetched emails.
-        -   Provides `processEmails` function: retrieves OpenAI settings from `SettingsContext`, substitutes variables into the prompt using `utils/promptUtils.ts`, **calls the OpenAI Chat Completions API directly from the browser using the `openai` library**, handles individual vs. combined email processing, returns the AI-generated result.
-        -   Provides functions to manage query history (save, clear, rerun).
+        -   Provides `processEmails` function: retrieves OpenAI settings from `SettingsContext`, substitutes variables into the prompt using `utils/promptUtils.ts`, **calls the OpenAI Chat Completions API directly from the browser using the `openai` library**, handles individual vs. combined email processing. **Note:** The logic to parse `[[Tag Markers]]` from the response, remove them, and populate the `tags` array in `ProcessedEmailResult` is currently missing/inactive.
+        -   Provides functions to manage query history (save, clear, rerun), which now store the new result structure.
         -   Loads/saves query history to `localStorage`.
         -   Includes `logToServer` utility to send frontend logs to `/api/log`.
--   **Key Pages**:
-    -   **`Dashboard.tsx`**: The main interface. Contains the `EmailFilterForm`, prompt input/selection (`SavedPromptSelector`, custom textarea), displays fetched emails, triggers fetching and processing via `EmailContext`, and displays results using `ProcessingResults`.
-    -   **`Settings.tsx`**: Allows users to input and save IMAP credentials (email, password/app password, host, port) and OpenAI settings (API key, model, temperature). Includes the "Test Connection" button. Saves settings via `SettingsContext` to `localStorage`.
-    -   **`PromptLibrary.tsx`**: (Code not reviewed, but inferred purpose) Allows users to manage (view, add, edit, delete) saved prompts stored via `SettingsContext`.
-    -   **`QueryHistory.tsx`**: (Code not reviewed, but inferred purpose) Displays past queries (filters, prompt, results) stored via `EmailContext` and allows re-running them.
--   **Layout (`Layout.tsx`)**: Provides the main application frame with a responsive sidebar for navigation between pages and displays connection status indicators (Email, API) based on `SettingsContext`.
+-   **Key Pages & Components**:
+    -   **`Dashboard.tsx`**: The main interface. Contains the `EmailFilterForm`, prompt input/selection (`SavedPromptSelector`, custom textarea), displays fetched emails, triggers fetching and processing via `EmailContext`, and displays results using `ProcessingResults`. Includes buttons below the custom prompt textarea to insert prompt variables and **tag markers**.
+    -   **`Settings.tsx`**: Allows users to input and save IMAP credentials and OpenAI settings.
+    -   **`PromptLibrary.tsx`**: Allows users to manage (view, add, edit, delete) saved prompts. Includes buttons below the prompt editor textarea to insert prompt variables and **tag markers**. Integrates the `PromptVariablesManager` and `TagManager` components.
+    -   **`PromptVariablesManager.tsx`**: Component for managing prompt variables (CRUD operations).
+    -   **`TagManager.tsx`**: Component for managing prompt tags (CRUD operations via modal). Simplifies creation by only asking for a Name and Color, automatically generating the `[[Marker]]` from the name.
+    -   **`ProcessingResults.tsx`**: Displays processing results fetched from `EmailContext`. If results were processed individually, it:
+        *   Displays tags as colored badges within each result item based on the (currently non-functional) `tags` array in the result data.
+        *   Provides a filtering UI above the results with buttons for each unique tag found across all results.
+        *   Allows users to select tags for filtering (AND logic), updating the displayed results.
+        *   Includes a "Clear Filters" button.
+    -   **`QueryHistory.tsx`**: (Code not reviewed, but inferred purpose) Displays past queries and allows re-running them.
+-   **Layout (`Layout.tsx`)**: Provides the main application frame.
 
 ## Data Flow (Main Workflow)
 
-1.  **Configuration**: User enters IMAP and OpenAI credentials on the Settings page. These are saved to `localStorage` via `SettingsContext`. The "Test Connection" button verifies IMAP details via the backend `/api/testConnection`.
+1.  **Configuration**: User enters IMAP/OpenAI credentials (`Settings.tsx`). User defines reusable Prompt Variables and **Prompt Tags** (`PromptLibrary.tsx` via `PromptVariablesManager` and `TagManager`). All saved to `localStorage` via `SettingsContext`.
 2.  **Query**: User navigates to the Dashboard page.
-3.  User selects email filters (date, folder, status, etc.) and a processing prompt (either custom or saved).
+3.  User selects email filters, and chooses/writes a processing prompt, potentially inserting variables and **tag markers** using helper buttons.
 4.  User initiates the process.
 5.  **Fetch**: `Dashboard` calls `fetchEmails` (in `EmailContext`).
 6.  `EmailContext` retrieves credentials from `SettingsContext` and sends a request to the backend `/api/fetchEmails`.
-7.  **Backend Fetch**: Backend (`api/index.js`) connects to the user's IMAP server, executes the search, fetches matching emails, parses them, and returns the data to the frontend (`EmailContext`).
-8.  `EmailContext` receives the email data and updates its state. `Dashboard` displays the fetched emails.
-9.  **Process**: `Dashboard` calls `processEmails` (in `EmailContext`) with the fetched emails and the chosen prompt.
-10. `EmailContext` retrieves OpenAI settings from `SettingsContext`.
-11. `EmailContext` substitutes any variables (e.g., `{USERNAME}`) in the prompt.
-12. **AI Call**: `EmailContext` **directly calls the OpenAI API from the browser** using the `openai` library, sending the prompt and email content(s).
-13. `EmailContext` receives the response from OpenAI.
-14. `EmailContext` updates `latestResults` state. `Dashboard` displays the results via `ProcessingResults`.
-15. **History**: `EmailContext` saves the query parameters, prompt, and results to `localStorage`.
+7.  **Backend Fetch**: Backend (`api/index.js`) connects via IMAP, fetches emails, parses, returns data to `EmailContext`.
+8.  `EmailContext` receives email data. `Dashboard` displays fetched emails.
+9.  **Process**: `Dashboard` calls `processEmails` (in `EmailContext`) with emails and prompt.
+10. `EmailContext` retrieves OpenAI settings.
+11. `EmailContext` substitutes variables in the prompt.
+12. **AI Call**: `EmailContext` calls the OpenAI API (client-side).
+13. `EmailContext` receives the response.
+14. **(Missing Step)** `EmailContext` is supposed to parse the AI response, identify defined `[[Tag Markers]]`, remove them from the content, and store the corresponding tag names in a `tags` array on the result object.
+15. `EmailContext` updates `latestResults` state with the processed content (and potentially tags). `Dashboard` displays the results via `ProcessingResults`.
+16. **Tag Display/Filter**: `ProcessingResults` reads `latestResults`. If individual processing was used, it displays any tags found in the result objects and renders filter buttons based on unique tags.
+17. **History**: `EmailContext` saves the query, prompt, and results (including the `tags` array, if it were populated) to `localStorage`.
 
 ## Security Considerations
 
@@ -111,4 +120,4 @@ The application follows a client-server architecture, but with a heavy emphasis 
 
 ## Summary
 
-The Email AI Processor is a functional prototype demonstrating how to fetch emails via IMAP and process them using AI. It heavily relies on client-side logic and `localStorage` for simplicity, but this comes with significant security drawbacks regarding credential handling (OpenAI key and email password). The backend serves primarily as an IMAP proxy. Core features include configurable email fetching, custom/saved prompt execution, prompt variable substitution, and query history. 
+The Email AI Processor is a functional prototype demonstrating how to fetch emails via IMAP and process them using AI. It heavily relies on client-side logic and `localStorage` for simplicity, but this comes with significant security drawbacks regarding credential handling (OpenAI key and email password). The backend serves primarily as an IMAP proxy. Core features include configurable email fetching, custom/saved prompt execution, prompt variable substitution, **prompt tag management/insertion/display/filtering (with noted parsing issues)**, and query history. 

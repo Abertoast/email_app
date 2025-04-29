@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState } from 'react';
-import { useSettings } from './SettingsContext';
+import { useSettings, Tag } from './SettingsContext';
 import toast from 'react-hot-toast';
 import OpenAI from 'openai';
 import { useNavigate } from 'react-router-dom';
@@ -34,18 +34,31 @@ interface EmailQuery {
   subjectSearchTerm?: string;
 }
 
+// Structure for a single processed email result
+interface ProcessedEmailResult {
+  subject: string;
+  sender: string; // Added sender for context
+  date: string; // Added date for context
+  originalUid: number | string; // Keep track of original email ID
+  content: string | null; // The main text content from the LLM
+  tags: string[]; // Array of extracted tag *names*
+}
+
 interface QueryHistoryItem {
   timestamp: number;
   queryData: EmailQuery;
   prompt: string;
-  results: string | null;
+  // Results can be a single string (combined) or an array (individual)
+  results: string | ProcessedEmailResult[] | null;
   processIndividually: boolean;
 }
 
 // Define structure for latest results
 interface LatestResults {
-  results: string | null;
+  // Results follow the same structure as history
+  results: string | ProcessedEmailResult[] | null;
   timestamp: number; // To help trigger updates
+  processIndividually: boolean; // Store how it was processed
 }
 
 // Define models that support temperature (can share or redefine here)
@@ -53,7 +66,8 @@ const MODELS_SUPPORTING_TEMP = new Set(['gpt-4o', 'gpt-4.1']);
 
 interface EmailContextType {
   fetchEmails: (queryData: EmailQuery) => Promise<any[]>;
-  processEmails: (emails: any[], prompt: string, processIndividually: boolean) => Promise<string>;
+  // processEmails returns type now depends on processIndividually
+  processEmails: (emails: any[], prompt: string, processIndividually: boolean) => Promise<string | ProcessedEmailResult[]>;
   isFetching: boolean;
   isProcessing: boolean;
   queryHistory: QueryHistoryItem[];
@@ -74,7 +88,7 @@ export const useEmail = () => {
 };
 
 export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { settings, promptVariables } = useSettings();
+  const { settings, promptVariables, tags: definedTags } = useSettings();
   const [isFetching, setIsFetching] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [queryHistory, setQueryHistory] = useState<QueryHistoryItem[]>([]);
@@ -85,20 +99,29 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const storedHistory = localStorage.getItem('emailai-query-history');
     if (storedHistory) {
       try {
-        setQueryHistory(JSON.parse(storedHistory));
+        // Basic check: if results is a string, it's likely old format or combined.
+        // More robust migration could be added if needed.
+        const parsedHistory = JSON.parse(storedHistory);
+        setQueryHistory(parsedHistory);
       } catch (error) {
         console.error('Failed to parse stored query history', error);
+        localStorage.removeItem('emailai-query-history'); // Clear corrupted data
       }
     }
   }, []);
   
-  const saveQueryToHistory = (query: EmailQuery, prompt: string, results: string | null, processIndividually: boolean) => {
+  const saveQueryToHistory = (
+      query: EmailQuery, 
+      prompt: string, 
+      results: string | ProcessedEmailResult[] | null, 
+      processIndividually: boolean
+  ) => {
     const newHistory = [
       {
         timestamp: Date.now(),
         queryData: query,
         prompt,
-        results,
+        results, // Save the potentially structured results
         processIndividually
       },
       ...queryHistory
@@ -197,7 +220,7 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     logToServer('log', `[EmailContext] Processing ${emails.length} emails. Individual processing: ${processIndividually}`);
     logToServer('log', '[EmailContext] Using OpenAI model:', settings.openaiModel);
 
-    let result = ''; // Initialize result variable
+    let result: string | ProcessedEmailResult[] = ''; // Initialize result variable with correct type
 
     try {
       const openai = new OpenAI({
@@ -221,6 +244,8 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
           logToServer('log', `[EmailContext] Processing email ${index + 1}/${emails.length} (UID: ${email.id}) individually.`);
           let individualResult = '';
+          let processedData: ProcessedEmailResult | null = null; // Use ProcessedEmailResult structure
+
           try {
             const completion = await openai.chat.completions.create({
               model: settings.openaiModel,
@@ -231,26 +256,102 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               ],
             });
             logToServer('log', `[EmailContext] Received response for email ${index + 1}/${emails.length}.`);
-            individualResult = completion.choices[0]?.message?.content || `(No response for email ${index + 1})`;
+            individualResult = completion.choices[0]?.message?.content || ''; // Get raw response
+
+            // --- START Tag Parsing Logic ---
+            const extractedTagNames: string[] = [];
+            let cleanedContent = individualResult;
+
+            if (individualResult && definedTags.length > 0) {
+              logToServer('log', `[EmailContext][TagParse] Raw content for email ${index + 1}:`, JSON.stringify(individualResult)); // Log raw content
+
+              // --- START New String Rebuilding Logic ---
+              definedTags.forEach(tag => {
+                const marker = tag.marker; // e.g., [[No Task]]
+                const markerLower = marker.toLowerCase();
+                let contentLower = cleanedContent.toLowerCase(); // Lowercase for searching
+                
+                logToServer('log', `[EmailContext][TagParse] Checking for marker: ${marker}`);
+
+                // Check if marker *might* exist before entering loop
+                if (contentLower.includes(markerLower)) {
+                    logToServer('log', `[EmailContext][TagParse] Marker \"${marker}\" might exist. Entering removal loop.`);
+                    
+                    // Add tag name ONCE if marker is found at least once
+                    if (!extractedTagNames.includes(tag.name)) {
+                       extractedTagNames.push(tag.name);
+                       logToServer('log', `[EmailContext][TagParse] Added tag name: ${tag.name}`);
+                    }
+
+                    // Loop to remove ALL occurrences using string rebuilding
+                    let startIndex = contentLower.indexOf(markerLower);
+                    while (startIndex > -1) {
+                        logToServer('log', `[EmailContext][TagParse] Found \"${marker}\" at index ${startIndex}.`);
+                        const endIndex = startIndex + marker.length;
+                        const beforeRemoval = cleanedContent;
+                        
+                        // Rebuild the string without this occurrence
+                        cleanedContent = cleanedContent.substring(0, startIndex) + cleanedContent.substring(endIndex);
+                        contentLower = cleanedContent.toLowerCase(); // Update lower case version for next search
+                        
+                        logToServer('log', `[EmailContext][TagParse] Content after removing occurrence at ${startIndex}:`, JSON.stringify(cleanedContent));
+                         if (beforeRemoval === cleanedContent) {
+                           logToServer('error', `[EmailContext][TagParse] FAILED TO REMOVE marker \"${marker}\" at index ${startIndex}. Content unchanged. Breaking loop.`);
+                           break; // Prevent infinite loop if removal somehow fails
+                         }
+
+                        // Find the next occurrence in the modified string
+                        startIndex = contentLower.indexOf(markerLower, startIndex); // Start next search from current index
+                    }
+                     logToServer('log', `[EmailContext][TagParse] Finished removal loop for marker \"${marker}\".`);
+                } else {
+                   // Optional: Log if a specific marker wasn't found
+                   // logToServer('log', `[EmailContext][TagParse] Marker not found initially: ${marker}`);
+                }
+              });
+              // --- END New String Rebuilding Logic ---
+            
+            } else {
+               logToServer('log', `[EmailContext][TagParse] No content or no defined tags for email ${index + 1}. Skipping parsing.`);
+            }
+            logToServer('log', `[EmailContext][TagParse] Final extracted tags for email ${index + 1}:`, extractedTagNames);
+            logToServer('log', `[EmailContext][TagParse] Final cleaned content for email ${index + 1}:`, JSON.stringify(cleanedContent));
+            // --- END Tag Parsing Logic ---
+
+            // Construct the ProcessedEmailResult object
+            processedData = {
+              subject: email.subject || '(No Subject)',
+              sender: email.sender || 'N/A',
+              date: email.date,
+              originalUid: email.id,
+              content: cleanedContent, // Use cleaned content
+              tags: extractedTagNames, // Use extracted tags
+            };
+
           } catch (error: any) {
              logToServer('error', `[EmailContext] Error processing email ${index + 1}/${emails.length}:`, error.message);
-             individualResult = `(Error processing email ${index + 1}: ${error.message})`;
+             // Still create a result object, but with error content and no tags
+             processedData = {
+               subject: email.subject || '(No Subject)',
+               sender: email.sender || 'N/A',
+               date: email.date,
+               originalUid: email.id,
+               content: `(Error processing email ${index + 1}: ${error.message})`,
+               tags: [],
+             };
           }
-          // Return object containing both subject and result
-          return {
-            subject: email.subject || '(No Subject)', 
-            result: individualResult
-          };
+          // Return the structured result object (or null if something went wrong before try/catch)
+          return processedData;
         });
 
-        const processedResultsWithSubjects = await Promise.all(processedResultsPromises);
+        // Filter out any null results in case of unexpected errors before try/catch
+        const processedResultsArray = (await Promise.all(processedResultsPromises))
+                                          .filter((item): item is ProcessedEmailResult => item !== null);
         
-        // Format the results with subjects before joining
-        result = processedResultsWithSubjects.map(item => 
-          `Subject: ${item.subject}\n\n${item.result}`
-        ).join('\n\n---\n\n'); 
+        // The result IS the array of processed objects
+        result = processedResultsArray; 
 
-        logToServer('log', '[EmailContext] Finished individual email processing.');
+        logToServer('log', '[EmailContext] Finished individual email processing. Result structure:', result);
         // --- END Individual OpenAI API Calls ---
 
       } else {
@@ -288,18 +389,24 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const queryDataToSave = emails[0]?.queryData || {
          dateRange: '', startDate: '', endDate: '', status: 'all', folder: 'INBOX', maxResults: 20
       };
+      
       // Save the *original* prompt to history, not the substituted one
       saveQueryToHistory(
         queryDataToSave,
         prompt, // <-- Save original prompt
-        result,
+        result, // Pass the result directly (now typed correctly)
         processIndividually
       );
       
       // Update latest results state
-      setLatestResults({ results: result, timestamp: Date.now() });
+      setLatestResults({ 
+          results: result, // Pass the result directly
+          timestamp: Date.now(), 
+          processIndividually: processIndividually 
+      });
 
-      return result; // Return the combined or single result
+      // Return the result (string or array)
+      return result; 
 
     } catch (error: any) {
       // General error handling (e.g., if Promise.all fails catastrophically, though individual errors are caught above)
@@ -314,18 +421,25 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         errorMessage = error.message || errorMessage;
       }
       toast.error(errorMessage);
+      // Determine type for saving history/latest results on error
+      const errorResultToSave = `Error: ${errorMessage}`;
+
       // Save history even on error, potentially with null result
       const queryDataToSave = emails[0]?.queryData || { dateRange: '', startDate: '', endDate: '', status: 'all', folder: 'INBOX', maxResults: 20 };
       // Save the *original* prompt to history on error as well
       saveQueryToHistory(
         queryDataToSave,
         prompt, // <-- Save original prompt
-        `Error: ${errorMessage}`,
+        errorResultToSave, // Save error string
         processIndividually
       );
       
       // Update latest results state with error
-      setLatestResults({ results: `Error: ${errorMessage}`, timestamp: Date.now() });
+      setLatestResults({ 
+          results: errorResultToSave, // Save error string
+          timestamp: Date.now(), 
+          processIndividually: processIndividually 
+      });
       
       throw new Error(errorMessage);
     } finally {
@@ -409,3 +523,8 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     </EmailContext.Provider>
   );
 };
+
+// Helper function to escape regex special characters in a string
+function escapeRegExp(string: string): string {
+  return string.replace(/[-\\/\\\\^$*+?.()|[\\]{}]/g, '\\$&');
+}

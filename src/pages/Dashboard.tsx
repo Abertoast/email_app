@@ -8,7 +8,7 @@ import SavedPromptSelector from '../components/SavedPromptSelector';
 import ProcessingResults from '../components/ProcessingResults';
 
 const Dashboard: React.FC = () => {
-  const { settings, savedPrompts } = useSettings();
+  const { settings, savedPrompts, tags, promptVariables } = useSettings();
   const { 
     fetchEmails, 
     processEmails, 
@@ -19,15 +19,20 @@ const Dashboard: React.FC = () => {
   } = useEmail();
   const [customPrompt, setCustomPrompt] = useState('');
   const [selectedPromptId, setSelectedPromptId] = useState<string | null>(null);
-  const [results, setResults] = useState<string | null>(null);
+  const [results, setResults] = useState<string | any[] | null>(null);
   const [emailCount, setEmailCount] = useState<number | null>(null);
   const [fetchedEmails, setFetchedEmails] = useState<any[]>([]);
   const [expandedEmailId, setExpandedEmailId] = useState<string | null>(null);
   const resultsContainerRef = useRef<HTMLDivElement>(null);
+  const customPromptTextareaRef = useRef<HTMLTextAreaElement>(null);
   
   useEffect(() => {
     if (latestResults) {
-      setResults(latestResults.results);
+      // No need to set results here anymore, ProcessingResults will use latestResults directly
+      // setResults(latestResults.results);
+    } else {
+      // Clear local results state if latestResults is cleared
+      setResults(null);
     }
   }, [latestResults]);
   
@@ -90,15 +95,16 @@ const Dashboard: React.FC = () => {
       
       if (emailsToProcess.length === 0) {
         toast('No emails found matching your criteria');
+        setResults([]); // Set results to empty array to clear previous results display
         return;
       }
       
-      // Process the determined list (either original or grouped)
+      // Process emails (this now updates latestResults in EmailContext)
       await processEmails(emailsToProcess, finalPrompt, processIndividually);
     } catch (error) {
       toast.error('Error processing emails');
       console.error(error);
-      setResults(null);
+      setResults(null); // Clear results on error
     }
   };
 
@@ -115,6 +121,26 @@ const Dashboard: React.FC = () => {
     setExpandedEmailId(prevId => (prevId === emailId ? null : emailId));
   };
   
+  // Handler for inserting text (variables or tags) into the custom prompt textarea
+  const handleInsertIntoCustomPrompt = (textToInsert: string) => {
+    if (customPromptTextareaRef.current) {
+      const textarea = customPromptTextareaRef.current;
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const text = textarea.value;
+      const newText = text.substring(0, start) + textToInsert + text.substring(end);
+
+      setCustomPrompt(newText);
+      setSelectedPromptId(null); // Clear selected prompt if using custom prompt
+
+      // Set cursor position after insertion
+      setTimeout(() => {
+        textarea.selectionStart = textarea.selectionEnd = start + textToInsert.length;
+        textarea.focus();
+      }, 0);
+    }
+  };
+
   return (
     <div className="max-w-6xl mx-auto">
       <div className="mb-8">
@@ -170,6 +196,7 @@ const Dashboard: React.FC = () => {
                   Custom Prompt
                 </label>
                 <textarea
+                  ref={customPromptTextareaRef}
                   className="w-full px-3 py-2 border rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   rows={5}
                   placeholder="E.g., List all the open items assigned to me from these emails"
@@ -179,9 +206,46 @@ const Dashboard: React.FC = () => {
                     setSelectedPromptId(null);
                   }}
                 />
-                <p className="mt-1 text-sm text-gray-500">
-                  Enter instructions for how to process the emails
-                </p>
+                {/* Insert Buttons Section */}
+                {/* Variables */}
+                {promptVariables.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-2 items-center">
+                    <span className="text-xs text-gray-500 self-center mr-1">Insert Variable:</span>
+                    {promptVariables.map(variable => (
+                      <button
+                        key={variable.id}
+                        type="button"
+                        onClick={() => handleInsertIntoCustomPrompt(`{${variable.key}}`)}
+                        className="px-2 py-1 bg-purple-100 text-purple-700 rounded-md hover:bg-purple-200 text-xs font-mono transition-colors"
+                        title={`Insert {${variable.key}}`}
+                      >
+                        {`{${variable.key}}`}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {/* Tags */}
+                {tags.length > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-2 items-center"> {/* Use mt-1 for closer spacing */}
+                    <span className="text-xs text-gray-500 self-center mr-1">Insert Tag:</span>
+                    {tags.map(tag => (
+                      <button
+                        key={tag.id}
+                        type="button"
+                        onClick={() => handleInsertIntoCustomPrompt(tag.marker)}
+                        className="px-2 py-1 rounded-md text-xs font-mono transition-colors border"
+                        style={{
+                          backgroundColor: tag.color + '20',
+                          borderColor: tag.color,
+                          color: tag.color
+                        }}
+                        title={`Insert ${tag.marker}`}
+                      >
+                        {tag.marker}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -271,7 +335,7 @@ const Dashboard: React.FC = () => {
         )}
         
         {/* Results area */}
-        {(isProcessing || results) && (
+        {(isProcessing || latestResults) && (
           <div ref={resultsContainerRef} className="border-t border-gray-200 p-6 bg-gray-50">
             <div className="flex items-center mb-4">
               <RefreshCw 
@@ -293,7 +357,7 @@ const Dashboard: React.FC = () => {
                 <p className="text-gray-600">Processing your emails...</p>
               </div>
             ) : (
-              <ProcessingResults results={results} />
+              <ProcessingResults />
             )}
           </div>
         )}
