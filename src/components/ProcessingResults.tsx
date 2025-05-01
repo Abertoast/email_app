@@ -13,6 +13,7 @@ const ProcessingResults: React.FC = () => {
   const { tags: definedTags } = useSettings(); // Get defined tags for color lookups
   const [copiedStates, setCopiedStates] = useState<Record<string | number, boolean>>({});
   const [selectedFilterTags, setSelectedFilterTags] = useState<string[]>([]); // State for active tag filters
+  const [isCopyAllCopied, setIsCopyAllCopied] = useState(false); // State for Copy All button
 
   // Early exit if no results
   if (!latestResults?.results) return null;
@@ -61,11 +62,29 @@ const ProcessingResults: React.FC = () => {
     }
     return (resultsData as any[]).filter(item => {
       if (!item.tags || !Array.isArray(item.tags)) return false; // Item must have tags
-      // Check if item.tags contains ALL selectedFilterTags ("AND" logic)
-      return selectedFilterTags.every(filterTag => item.tags.includes(filterTag));
+      // Check if item.tags contains ANY selectedFilterTags ("OR" logic)
+      return selectedFilterTags.some(filterTag => item.tags.includes(filterTag)); // Use .some() for OR
     });
   }, [resultsData, isIndividual, selectedFilterTags]);
   // --- End Filtering Logic ---
+
+  // Handler for copying all filtered results
+  const handleCopyAll = () => {
+    if (!isIndividual || !filteredResults || (filteredResults as any[]).length === 0) return;
+    
+    const combinedContent = (filteredResults as any[])
+      .map(item => item.content || '') // Get content, default to empty string if null/undefined
+      .join('\n\n---\n\n'); // Join with a separator
+      
+    if (combinedContent) {
+      navigator.clipboard.writeText(combinedContent);
+      setIsCopyAllCopied(true);
+      setTimeout(() => setIsCopyAllCopied(false), 2000); // Reset after 2 seconds
+    } else {
+      // Optional: feedback if there was nothing to copy (e.g., all results had no content)
+      console.log('No content found in filtered results to copy.');
+    }
+  };
 
   const toggleFilterTag = (tagName: string) => {
     setSelectedFilterTags(prev =>
@@ -127,6 +146,28 @@ const ProcessingResults: React.FC = () => {
         </div>
       )}
       {/* --- End Tag Filter UI --- */}
+      
+      {/* --- Copy All Button --- */}
+      {isIndividual && (filteredResults as any[]).length > 0 && (
+         <div className="mb-4 flex justify-end"> {/* Add margin bottom */} 
+             <button
+               onClick={handleCopyAll}
+               className="px-3 py-1.5 text-sm rounded-md flex items-center transition-colors duration-200 bg-gray-200 text-gray-700 hover:bg-gray-300"
+               title="Copy content of all filtered results"
+             >
+               {isCopyAllCopied ? (
+                   <> 
+                     <Check className="h-4 w-4 mr-1.5 text-green-600" /> Copied!
+                   </>
+                 ) : (
+                   <>
+                     <Copy className="h-4 w-4 mr-1.5" /> Copy All
+                   </>
+               )}
+             </button>
+         </div>
+      )}
+      {/* --- End Copy All Button --- */}
 
       {/* --- Results Display --- */}
       {isIndividual ? (

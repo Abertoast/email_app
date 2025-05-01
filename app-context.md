@@ -41,7 +41,7 @@ The application follows a client-server architecture, but with a heavy emphasis 
 
 -   **Purpose**: Primarily acts as a secure intermediary for IMAP operations, avoiding the need for the browser to handle IMAP connections directly.
 -   **Key Endpoints**:
-    -   `POST /api/fetchEmails`: Receives IMAP credentials, host/port details, and search criteria (folder, dates, status, subject, max results) from the frontend. Connects to the IMAP server, fetches matching email UIDs, retrieves email bodies and attributes (flags, date, etc.), parses them using `mailparser`, and returns an array of email objects (id, sender, subject, date, read status, flags, body, folder). Handles fetching from multiple folders (`fetchAllFolders: true`) or a single specified folder. Includes logic to limit results per folder and sort the final combined list.
+    -   `POST /api/fetchEmails`: Receives IMAP credentials, host/port details, and search criteria (folder, dates, status, subject, max results, `fetchAllFolders`) from the frontend. Connects to the IMAP server, fetches matching email UIDs, retrieves email bodies and attributes (flags, date, etc.), parses them using `mailparser`, and returns an array of email objects (id, sender, subject, date, read status, flags, body, folder). Handles fetching from multiple folders (`fetchAllFolders: true`) or a single specified folder. Includes logic to limit results per folder and sort the final combined list.
     -   `POST /api/testConnection`: Receives IMAP credentials and host/port. Attempts to connect to the IMAP server to validate the credentials and returns `{ success: true }` or `{ success: false, error: '...' }`.
     -   `POST /api/log`: Receives log messages (level, message) from the frontend and prints them to the Vercel function logs, prefixed with `[CLIENT]`.
     -   `GET /`: Simple health check endpoint used by `wait-on` during development startup.
@@ -54,7 +54,7 @@ The application follows a client-server architecture, but with a heavy emphasis 
 -   **Entry Point**: `src/main.tsx` renders the main `App` component into the root HTML element.
 -   **Core Component**: `src/App.tsx` sets up:
     -   Context Providers (`SettingsProvider`, `EmailProvider`).
-    -   Routing using `react-router-dom` (`BrowserRouter`, `Routes`, `Route`).
+    -   Routing using `react-router-dom` (`BrowserRouter`, `Routes`, `Route` for Dashboard, Settings, PromptLibrary, and QueryHistory pages).
     -   The main `Layout` component.
     -   `react-hot-toast` configuration (`Toaster`).
 -   **Structure**:
@@ -73,7 +73,7 @@ The application follows a client-server architecture, but with a heavy emphasis 
     -   **`EmailContext.tsx`**:
         -   Manages email fetching and processing state (`isFetching`, `isProcessing`).
         -   Manages query history (`queryHistory`) and latest processing results (`latestResults`). The structure for results when processed individually (`ProcessedEmailResult`) now includes a `tags: string[]` array intended to hold extracted tag names.
-        -   Provides `fetchEmails` function: retrieves settings from `SettingsContext`, calls backend `/api/fetchEmails`, returns fetched emails.
+        -   Provides `fetchEmails` function: retrieves settings from `SettingsContext`, calls backend `/api/fetchEmails` (including the `fetchAllFolders` flag), returns fetched emails.
         -   Provides `processEmails` function: retrieves OpenAI settings from `SettingsContext`, substitutes variables into the prompt using `utils/promptUtils.ts`, **calls the OpenAI Chat Completions API directly from the browser using the `openai` library**, handles individual vs. combined email processing. **Note:** The logic to parse `[[Tag Markers]]` from the response, remove them, and populate the `tags` array in `ProcessedEmailResult` is currently missing/inactive.
         -   Provides functions to manage query history (save, clear, rerun), which now store the new result structure.
         -   Loads/saves query history to `localStorage`.
@@ -87,20 +87,21 @@ The application follows a client-server architecture, but with a heavy emphasis 
     -   **`ProcessingResults.tsx`**: Displays processing results fetched from `EmailContext`. If results were processed individually, it:
         *   Displays tags as colored badges within each result item based on the (currently non-functional) `tags` array in the result data.
         *   Provides a filtering UI above the results with buttons for each unique tag found across all results.
-        *   Allows users to select tags for filtering (AND logic), updating the displayed results.
+        *   Allows users to select tags for filtering (OR logic), updating the displayed results.
         *   Includes a "Clear Filters" button.
-    -   **`QueryHistory.tsx`**: (Code not reviewed, but inferred purpose) Displays past queries and allows re-running them.
+        *   Includes a "Copy All" button to copy the content of all currently filtered results to the clipboard.
+    -   **`QueryHistory.tsx`**: Displays past queries (filters and prompt used) and their results (handling both combined string results and individual array results). Allows re-running past queries.
 -   **Layout (`Layout.tsx`)**: Provides the main application frame.
 
 ## Data Flow (Main Workflow)
 
 1.  **Configuration**: User enters IMAP/OpenAI credentials (`Settings.tsx`). User defines reusable Prompt Variables and **Prompt Tags** (`PromptLibrary.tsx` via `PromptVariablesManager` and `TagManager`). All saved to `localStorage` via `SettingsContext`.
 2.  **Query**: User navigates to the Dashboard page.
-3.  User selects email filters, and chooses/writes a processing prompt, potentially inserting variables and **tag markers** using helper buttons.
+3.  User selects email filters (including `fetchAllFolders`), and chooses/writes a processing prompt, potentially inserting variables and **tag markers** using helper buttons.
 4.  User initiates the process.
 5.  **Fetch**: `Dashboard` calls `fetchEmails` (in `EmailContext`).
-6.  `EmailContext` retrieves credentials from `SettingsContext` and sends a request to the backend `/api/fetchEmails`.
-7.  **Backend Fetch**: Backend (`api/index.js`) connects via IMAP, fetches emails, parses, returns data to `EmailContext`.
+6.  `EmailContext` retrieves credentials from `SettingsContext` and sends a request to the backend `/api/fetchEmails` with the specified query parameters (folder, dates, status, subject, max results, `fetchAllFolders`).
+7.  **Backend Fetch**: Backend (`api/index.js`) connects via IMAP, fetches emails based on criteria, parses, returns data to `EmailContext`.
 8.  `EmailContext` receives email data. `Dashboard` displays fetched emails.
 9.  **Process**: `Dashboard` calls `processEmails` (in `EmailContext`) with emails and prompt.
 10. `EmailContext` retrieves OpenAI settings.
@@ -109,7 +110,7 @@ The application follows a client-server architecture, but with a heavy emphasis 
 13. `EmailContext` receives the response.
 14. **(Missing Step)** `EmailContext` is supposed to parse the AI response, identify defined `[[Tag Markers]]`, remove them from the content, and store the corresponding tag names in a `tags` array on the result object.
 15. `EmailContext` updates `latestResults` state with the processed content (and potentially tags). `Dashboard` displays the results via `ProcessingResults`.
-16. **Tag Display/Filter**: `ProcessingResults` reads `latestResults`. If individual processing was used, it displays any tags found in the result objects and renders filter buttons based on unique tags.
+16. **Tag Display/Filter**: `ProcessingResults` reads `latestResults`. If individual processing was used, it displays any tags found in the result objects and renders filter buttons based on unique tags (using OR logic for selection).
 17. **History**: `EmailContext` saves the query, prompt, and results (including the `tags` array, if it were populated) to `localStorage`.
 
 ## Security Considerations
@@ -120,4 +121,4 @@ The application follows a client-server architecture, but with a heavy emphasis 
 
 ## Summary
 
-The Email AI Processor is a functional prototype demonstrating how to fetch emails via IMAP and process them using AI. It heavily relies on client-side logic and `localStorage` for simplicity, but this comes with significant security drawbacks regarding credential handling (OpenAI key and email password). The backend serves primarily as an IMAP proxy. Core features include configurable email fetching, custom/saved prompt execution, prompt variable substitution, **prompt tag management/insertion/display/filtering (with noted parsing issues)**, and query history. 
+The Email AI Processor is a functional prototype demonstrating how to fetch emails via IMAP and process them using AI. It heavily relies on client-side logic and `localStorage` for simplicity, but this comes with significant security drawbacks regarding credential handling (OpenAI key and email password). The backend serves primarily as an IMAP proxy. Core features include configurable email fetching, custom/saved prompt execution, prompt variable substitution, **prompt tag management/insertion/display/filtering (using OR logic, with noted parsing issues)**, a "Copy All" feature for individual results, and query history. 

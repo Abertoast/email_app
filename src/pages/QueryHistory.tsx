@@ -133,7 +133,12 @@ const QueryHistory: React.FC = () => {
                     </h3>
                     <div className="bg-gray-50 rounded-md p-3 max-h-40 overflow-y-auto">
                       <p className="text-gray-600 text-sm whitespace-pre-wrap">
-                        {query.results}
+                        {typeof query.results === 'string'
+                          ? query.results
+                          : Array.isArray(query.results)
+                            ? query.results.map((r: any) => r.content).join('\n\n---\n\n')
+                            : '(No results available)'
+                        }
                       </p>
                     </div>
                   </div>

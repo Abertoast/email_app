@@ -60,20 +60,6 @@ const Layout: React.FC<LayoutProps> = ({ children, isUpdateAvailableForRefresh }
                 <span>{item.name}</span>
               </NavLink>
             ))}
-            <NavLink
-              to="/settings"
-              className={({ isActive }) => 
-                `flex items-center px-4 py-3 text-gray-600 transition-colors duration-200 rounded-md ${
-                  isActive 
-                    ? 'bg-blue-50 text-blue-600' 
-                    : 'hover:bg-gray-100'
-                }`
-              }
-              onClick={() => setSidebarOpen(false)}
-            >
-              <SettingsIcon size={20} className="mr-3" />
-              <span>Settings</span>
-            </NavLink>
           </nav>
           
           {/* Bottom section with status */}

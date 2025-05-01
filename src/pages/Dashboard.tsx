@@ -37,10 +37,11 @@ const Dashboard: React.FC = () => {
   }, [latestResults]);
   
   useEffect(() => {
-    if (!isProcessing && results && resultsContainerRef.current) {
+    // Scroll when processing is finished AND there are new results
+    if (!isProcessing && latestResults && latestResults.results && resultsContainerRef.current) {
       resultsContainerRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
-  }, [isProcessing, results]);
+  }, [isProcessing, latestResults]); // Depend on latestResults instead of local results
   
   const handleProcess = async (data: { formData: any; processIndividually: boolean; groupBySubject: boolean }) => {
     const { formData, processIndividually, groupBySubject } = data;
