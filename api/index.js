@@ -104,7 +104,10 @@ async function fetchAndParseEmailsFromFolder(imap, folderName, searchCriteria, m
         bodies: '',
         markSeen: false,
         struct: true,
-        fetchspec: 'X-GM-LABELS'
+        // Ask for Gmail-specific attributes if available
+        // node-imap will include x-gm-msgid and x-gm-labels in attributes if supported
+        // See: https://github.com/mscdex/node-imap#fetchoptions
+        // No need to specify fetchspec, just rely on node-imap's default behavior
       });
 
       fetch.on('message', (msg, seqno) => {
@@ -132,8 +135,13 @@ async function fetchAndParseEmailsFromFolder(imap, folderName, searchCriteria, m
             try {
               // console.log(`[fetchAndParseEmailsFromFolder] Parsing UID: ${currentUid} from ${folderName}`); // Reduced logging verbosity
               const parsed = await simpleParser(msgSource);
+
+              // ---> ADDED LOGGING HERE <---
+              console.log(`[fetchAndParseEmailsFromFolder] [RAW ATTRS] UID: ${currentUid}, Folder: ${folderName}, Flags: ${JSON.stringify(attributes.flags)}, X-GM-Labels: ${JSON.stringify(attributes['x-gm-labels'])}`);
+
               fetchedEmailsData.push({
                 id: attributes.uid,
+                gmMsgId: attributes['x-gm-msgid'] || null,
                 sender: parsed.from?.text || '(no sender)',
                 subject: parsed.subject || '(no subject)',
                 date: attributes.date,
@@ -148,6 +156,7 @@ async function fetchAndParseEmailsFromFolder(imap, folderName, searchCriteria, m
               console.error(`[fetchAndParseEmailsFromFolder] Error parsing UID ${currentUid} in ${folderName}:`, parseErr.message);
               fetchedEmailsData.push({
                 id: attributes.uid,
+                gmMsgId: attributes['x-gm-msgid'] || null,
                 sender: '(parse error)',
                 subject: '(parse error)',
                 date: attributes.date,

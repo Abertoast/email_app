@@ -1,11 +1,34 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Calendar, Clock, RefreshCw, Inbox, Search, Loader, X, Mail, ChevronDown, ChevronRight } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { Calendar, Clock, RefreshCw, Inbox, Search, Loader, X, Mail, ChevronDown, ChevronRight, Copy, Filter } from 'lucide-react';
 import { useEmail } from '../contexts/EmailContext';
 import { useSettings } from '../contexts/SettingsContext';
 import toast from 'react-hot-toast';
 import EmailFilterForm from '../components/EmailFilterForm';
 import SavedPromptSelector from '../components/SavedPromptSelector';
-import ProcessingResults from '../components/ProcessingResults';
+import UnifiedEmailCard from '../components/UnifiedEmailCard';
+import TagFilter from '../components/TagFilter';
+import BulkActionsMenu from '../components/BulkActionsMenu';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+
+// Define our unified data structure
+interface UnifiedEmailResult {
+  id: string;
+  subject: string;
+  sender: string;
+  date: string;
+  read: boolean;
+  flags: string[];
+  body: string;
+  folder: string;
+  folders: string[];
+  processed: boolean;
+  processing_error?: string;
+  result?: {
+    content: string;
+    tags: string[];
+  };
+}
 
 const Dashboard: React.FC = () => {
   const { settings, savedPrompts, tags, promptVariables } = useSettings();
@@ -17,36 +40,130 @@ const Dashboard: React.FC = () => {
     latestResults,
     clearLatestResults
   } = useEmail();
+  
+  // State for form and inputs
   const [customPrompt, setCustomPrompt] = useState('');
   const [selectedPromptId, setSelectedPromptId] = useState<string | null>(null);
-  const [results, setResults] = useState<string | any[] | null>(null);
+  
+  // State for emails and results
   const [emailCount, setEmailCount] = useState<number | null>(null);
   const [fetchedEmails, setFetchedEmails] = useState<any[]>([]);
-  const [expandedEmailId, setExpandedEmailId] = useState<string | null>(null);
+  const [unifiedResults, setUnifiedResults] = useState<UnifiedEmailResult[]>([]);
+  
+  // UI state
+  const [expandedItems, setExpandedItems] = useState<string[]>([]);
+  const [isAllExpanded, setIsAllExpanded] = useState(false);
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [selectedFlags, setSelectedFlags] = useState<string[]>([]);
+  const [copiedStates, setCopiedStates] = useState<Record<string, boolean>>({});
+  
+  // Refs
   const resultsContainerRef = useRef<HTMLDivElement>(null);
   const customPromptTextareaRef = useRef<HTMLTextAreaElement>(null);
   
+  // When latestResults change, update our unified results structure
   useEffect(() => {
-    if (latestResults) {
-      // No need to set results here anymore, ProcessingResults will use latestResults directly
-      // setResults(latestResults.results);
+    if (latestResults && latestResults.processIndividually && Array.isArray(latestResults.results)) {
+      // Create unified data structure matching emails with their processed results
+      const unified = fetchedEmails.map(email => {
+        // Find matching processed result by ID
+        const processed = (latestResults.results as any[])
+          .find(r => r.originalUid === email.id);
+        // If email.folders exists, use it; otherwise, fallback to single folder
+        return {
+          // Original email data
+          id: email.id,
+          subject: email.subject || '(No Subject)',
+          sender: email.sender || 'N/A',
+          date: email.date,
+          read: email.read,
+          flags: email.flags || [],
+          body: email.body || '',
+          folder: email.folder || 'INBOX',
+          folders: email.folders || (email.folder ? [email.folder] : []),
+          // Processing result data
+          processed: !!processed,
+          processing_error: processed?.error,
+          result: processed ? {
+            content: processed.content || '',
+            tags: processed.tags || []
+          } : undefined
+        };
+      });
+      setUnifiedResults(unified);
     } else {
-      // Clear local results state if latestResults is cleared
-      setResults(null);
+      // For combined processing (not individual), we don't have unified results
+      setUnifiedResults([]);
     }
-  }, [latestResults]);
+  }, [latestResults, fetchedEmails]);
   
+  // Scroll when processing is finished AND there are new results
   useEffect(() => {
-    // Scroll when processing is finished AND there are new results
     if (!isProcessing && latestResults && latestResults.results && resultsContainerRef.current) {
       resultsContainerRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
-  }, [isProcessing, latestResults]); // Depend on latestResults instead of local results
+  }, [isProcessing, latestResults]);
   
+  // Load expanded state from localStorage
+  useEffect(() => {
+    const savedExpansionState = localStorage.getItem('emailai-expansion-state');
+    if (savedExpansionState) {
+      try {
+        setExpandedItems(JSON.parse(savedExpansionState));
+      } catch (e) {
+        console.error('Failed to parse saved expansion state');
+      }
+    }
+  }, []);
+  
+  // Save expanded state to localStorage when it changes
+  useEffect(() => {
+    localStorage.setItem('emailai-expansion-state', JSON.stringify(expandedItems));
+  }, [expandedItems]);
+  
+  // Calculate unique tags from unifiedResults
+  const uniqueTags = useMemo(() => {
+    const tagSet = new Set<string>();
+    unifiedResults.forEach(item => {
+      if (item.processed && item.result?.tags) {
+        item.result.tags.forEach(tag => tagSet.add(tag));
+      }
+    });
+    return Array.from(tagSet).sort();
+  }, [unifiedResults]);
+
+  // Calculate unique flags from unifiedResults (system/user labels only, not folders)
+  const uniqueFlags = useMemo(() => {
+    const flagSet = new Set<string>();
+    unifiedResults.forEach(item => {
+      if (item.flags && Array.isArray(item.flags)) {
+        item.flags.forEach(flag => flagSet.add(flag));
+      }
+    });
+    return Array.from(flagSet).sort();
+  }, [unifiedResults]);
+
+  // Filter unified results by (tags OR) AND (flags OR)
+  const filteredResults = useMemo(() => {
+    return unifiedResults.filter(item => {
+      // Tag filter (OR logic)
+      const tagMatch = selectedTags.length === 0 || (item.processed && item.result && Array.isArray(item.result.tags) && selectedTags.some(tag => item.result!.tags.includes(tag)));
+      // Flag filter (OR logic)
+      const flagMatch = selectedFlags.length === 0 || (item.flags && selectedFlags.some(flag => item.flags.includes(flag)));
+      // AND between tag and flag groups
+      return tagMatch && flagMatch;
+    });
+  }, [unifiedResults, selectedTags, selectedFlags]);
+
+  // Process form submission
   const handleProcess = async (data: { formData: any; processIndividually: boolean; groupBySubject: boolean }) => {
     const { formData, processIndividually, groupBySubject } = data;
 
     clearLatestResults();
+    setUnifiedResults([]);
+    setSelectedTags([]);
+    setSelectedFlags([]);
+    setExpandedItems([]);
     
     if (!settings.emailConnected) {
       toast.error('Please connect your email in settings first');
@@ -80,49 +197,139 @@ const Dashboard: React.FC = () => {
       
       // Apply grouping only if the checkbox was checked
       if (groupBySubject) {
-        const emailThreads = new Map<string, any>();
+        // Group by gmMsgId, fallback to Message-ID, then subject
+        const emailGroups = new Map<string, any[]>();
         emails.forEach(email => {
-          const subject = email.subject || '(no subject)';
-          if (!emailThreads.has(subject)) {
-            emailThreads.set(subject, email);
+          const groupKey = email.gmMsgId || email["messageId"] || email.subject || '(no subject)';
+          if (!emailGroups.has(groupKey)) {
+            emailGroups.set(groupKey, []);
           }
+          const group = emailGroups.get(groupKey);
+          if (group) group.push(email);
         });
-        emailsToProcess = Array.from(emailThreads.values());
+        // For each group, pick the newest email and merge all unique flags and folders
+        emailsToProcess = Array.from(emailGroups.values()).map(group => {
+          // Pick newest by date
+          const newest = group.reduce((a, b) => new Date(a.date) > new Date(b.date) ? a : b);
+          // Merge all unique flags and folders
+          const allFlags = Array.from(new Set(group.flatMap(e => e.flags || [])));
+          const allFolders = Array.from(new Set(group.map(e => e.folder)));
+          return {
+            ...newest,
+            flags: allFlags,
+            folders: allFolders, // Add folders array for display
+          };
+        });
       }
       
-      // Update state and processing with the potentially filtered list
+      // Update state with the potentially filtered list
       setEmailCount(emailsToProcess.length); 
       setFetchedEmails(emailsToProcess); 
       
       if (emailsToProcess.length === 0) {
         toast('No emails found matching your criteria');
-        setResults([]); // Set results to empty array to clear previous results display
         return;
       }
       
-      // Process emails (this now updates latestResults in EmailContext)
+      // Process emails (this updates latestResults in EmailContext)
       await processEmails(emailsToProcess, finalPrompt, processIndividually);
     } catch (error) {
       toast.error('Error processing emails');
       console.error(error);
-      setResults(null); // Clear results on error
     }
   };
 
   const resetForm = () => {
     setCustomPrompt('');
     setSelectedPromptId(null);
-    setResults(null);
     setEmailCount(null);
     setFetchedEmails([]);
+    setUnifiedResults([]);
+    setSelectedTags([]);
+    setSelectedFlags([]);
+    setExpandedItems([]);
     clearLatestResults();
   };
   
-  const toggleEmailExpansion = (emailId: string) => {
-    setExpandedEmailId(prevId => (prevId === emailId ? null : emailId));
+  // Toggle expansion of a single item
+  const handleToggleExpansion = (id: string) => {
+    setExpandedItems(prev => {
+      if (prev.includes(id)) {
+        return prev.filter(itemId => itemId !== id);
+      } else {
+        return [...prev, id];
+      }
+    });
   };
   
-  // Handler for inserting text (variables or tags) into the custom prompt textarea
+  // Expand all items
+  const handleExpandAll = () => {
+    const allIds = unifiedResults.map(item => item.id);
+    setExpandedItems(allIds);
+    setIsAllExpanded(true);
+  };
+  
+  // Collapse all items
+  const handleCollapseAll = () => {
+    setExpandedItems([]);
+    setIsAllExpanded(false);
+  };
+  
+  // Toggle a tag filter
+  const handleTagToggle = (tag: string) => {
+    setSelectedTags(prev => {
+      if (prev.includes(tag)) {
+        return prev.filter(t => t !== tag);
+      } else {
+        return [...prev, tag];
+      }
+    });
+  };
+  
+  // Clear all tag filters
+  const handleClearAllTags = () => {
+    setSelectedTags([]);
+  };
+  
+  // Handlers for flag filter
+  const handleFlagToggle = (flag: string) => {
+    setSelectedFlags(prev => prev.includes(flag) ? prev.filter(f => f !== flag) : [...prev, flag]);
+  };
+  const handleClearAllFlags = () => setSelectedFlags([]);
+  
+  // Get tag color based on defined tags
+  const getTagColor = (tagName: string): string => {
+    const tag = tags.find(t => t.name === tagName);
+    return tag?.color || '#cccccc'; // Default grey if tag not found
+  };
+  
+  // Copy content from an item
+  const handleCopyContent = (id: string, content: string) => {
+    navigator.clipboard.writeText(content);
+    // Update the copied state for this specific item
+    setCopiedStates(prev => ({ ...prev, [id]: true }));
+    // Reset after 2 seconds
+    setTimeout(() => {
+      setCopiedStates(prev => ({ ...prev, [id]: false }));
+    }, 2000);
+  };
+  
+  // Copy all filtered content at once
+  const handleCopyAll = () => {
+    if (filteredResults.length === 0) return;
+    
+    const combinedContent = filteredResults
+      .filter(item => item.processed && item.result?.content)
+      .map(item => item.result!.content)
+      .join('\n\n---\n\n'); // Add separator between items
+      
+    if (combinedContent) {
+      navigator.clipboard.writeText(combinedContent);
+      toast.success('Copied all content to clipboard');
+    }
+  };
+  
+  // Insert variables or tags into the custom prompt
   const handleInsertIntoCustomPrompt = (textToInsert: string) => {
     if (customPromptTextareaRef.current) {
       const textarea = customPromptTextareaRef.current;
@@ -227,7 +434,7 @@ const Dashboard: React.FC = () => {
                 )}
                 {/* Tags */}
                 {tags.length > 0 && (
-                  <div className="mt-1 flex flex-wrap gap-2 items-center"> {/* Use mt-1 for closer spacing */}
+                  <div className="mt-1 flex flex-wrap gap-2 items-center">
                     <span className="text-xs text-gray-500 self-center mr-1">Insert Tag:</span>
                     {tags.map(tag => (
                       <button
@@ -252,98 +459,15 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
         
-        {/* Fetched Emails */}
-        {fetchedEmails.length > 0 && (
-          <div className="border-t border-gray-200 p-6 bg-gray-50">
-            <div className="flex items-center mb-4">
-              <Mail className="w-5 h-5 mr-2 text-blue-600" />
-              <h3 className="text-lg font-medium text-gray-700">
-                Fetched Emails
-              </h3>
-              <span className="ml-2 px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-full">
-                {fetchedEmails.length} emails
-              </span>
-            </div>
-            
-            <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
-              {fetchedEmails.map((email) => {
-                const isExpanded = expandedEmailId === email.id;
-                return (
-                  <div 
-                    key={email.id}
-                    className="bg-white rounded-md border border-gray-200 overflow-hidden"
-                  >
-                    <div 
-                      className="p-3 cursor-pointer hover:bg-gray-50 transition-colors duration-150"
-                      onClick={() => toggleEmailExpansion(email.id)}
-                      aria-expanded={isExpanded}
-                      aria-controls={`email-body-${email.id}`}
-                    >
-                      <div className="flex justify-between items-start">
-                        <div className="flex items-center mr-2">
-                          {isExpanded ? (
-                            <ChevronDown className="w-4 h-4 mr-2 text-gray-500 flex-shrink-0" /> 
-                          ) : (
-                            <ChevronRight className="w-4 h-4 mr-2 text-gray-500 flex-shrink-0" />
-                          )}
-                          <div>
-                            <p className="font-medium text-gray-900">{email.subject || '(no subject)'}</p>
-                            <p className="text-sm text-gray-600">{email.sender}</p>
-                          </div>
-                        </div>
-                        <span className="text-xs text-gray-500 flex-shrink-0 ml-2">
-                          {new Date(email.date).toLocaleDateString()}
-                        </span>
-                      </div>
-                      <div className="mt-1 flex items-center pl-6">
-                        <span className={`w-2 h-2 rounded-full mr-2 ${
-                          email.read ? 'bg-gray-400' : 'bg-blue-500'
-                        }`} />
-                        <span className="text-xs text-gray-600">
-                          {email.read ? 'Read' : 'Unread'}
-                        </span>
-                        <div className="ml-auto flex space-x-1">
-                          {email.flags && Array.isArray(email.flags) && email.flags
-                            .filter((flag: string) => !flag.startsWith('\\'))
-                            .slice(0, 3)
-                            .map((flag: string) => (
-                              <span 
-                                key={flag} 
-                                className="px-2 py-0.5 text-xs font-medium bg-green-100 text-green-800 rounded-full"
-                              >
-                                {flag.replace(/^\\?/, '')} 
-                              </span>
-                            ))}
-                        </div>
-                      </div>
-                    </div>
-                    {isExpanded && (
-                      <div 
-                        id={`email-body-${email.id}`}
-                        className="border-t border-gray-200 p-4 bg-gray-50 max-h-96 overflow-y-auto"
-                      >
-                        <div 
-                          className="prose prose-sm max-w-none whitespace-pre-wrap"
-                          dangerouslySetInnerHTML={{ __html: email.body || '<p>No content available.</p>' }} 
-                        />
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-        
-        {/* Results area */}
-        {(isProcessing || latestResults) && (
+        {/* Results Area - Unified UI for emails and their processed results */}
+        {(isFetching || isProcessing || latestResults) && (
           <div ref={resultsContainerRef} className="border-t border-gray-200 p-6 bg-gray-50">
             <div className="flex items-center mb-4">
               <RefreshCw 
-                className={`w-5 h-5 mr-2 text-blue-600 ${isProcessing ? 'animate-spin' : ''}`} 
+                className={`w-5 h-5 mr-2 text-blue-600 ${isProcessing || isFetching ? 'animate-spin' : ''}`} 
               />
               <h3 className="text-lg font-medium text-gray-700">
-                Processing Results
+                {isProcessing ? 'Processing Emails...' : 'Results'}
               </h3>
               {emailCount !== null && (
                 <span className="ml-2 px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-full">
@@ -352,14 +476,148 @@ const Dashboard: React.FC = () => {
               )}
             </div>
             
-            {isProcessing ? (
+            {isFetching || isProcessing ? (
+              // Loading state
               <div className="flex flex-col items-center justify-center py-8">
                 <Loader className="w-8 h-8 text-blue-500 animate-spin mb-4" />
-                <p className="text-gray-600">Processing your emails...</p>
+                <p className="text-gray-600">
+                  {isFetching ? 'Fetching your emails...' : 'Processing your emails...'}
+                </p>
               </div>
-            ) : (
-              <ProcessingResults />
-            )}
+            ) : latestResults ? (
+              // Results display
+              latestResults.processIndividually ? (
+                // Individual processing mode (unified email cards)
+                <>
+                  {/* Tag and Flag filtering */}
+                  {(uniqueTags.length > 0 || uniqueFlags.length > 0) && (
+                    <div className="mb-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {uniqueTags.length > 0 && (
+                        <div className="h-full flex flex-col">
+                          <TagFilter 
+                            availableTags={uniqueTags}
+                            selectedTags={selectedTags}
+                            onTagToggle={handleTagToggle}
+                            onClearAll={handleClearAllTags}
+                            getTagColor={getTagColor}
+                          />
+                        </div>
+                      )}
+                      {uniqueFlags.length > 0 && (
+                        <div className="p-3 bg-gray-100 rounded-md border border-gray-300 h-full flex flex-col">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center">
+                              <Filter size={16} className="mr-2 text-gray-600" />
+                              <span className="text-sm font-medium text-gray-700">Filter by Flag:</span>
+                            </div>
+                            {selectedFlags.length > 0 && (
+                              <button
+                                onClick={handleClearAllFlags}
+                                className="text-xs text-blue-600 hover:underline flex items-center"
+                                aria-label="Clear all flag filters"
+                              >
+                                <X size={12} className="mr-1" /> Clear Flags
+                              </button>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {uniqueFlags.map(flagName => (
+                              <button
+                                key={flagName}
+                                onClick={() => handleFlagToggle(flagName)}
+                                className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors duration-150 ${selectedFlags.includes(flagName)
+                                  ? 'text-white'
+                                  : 'hover:bg-opacity-20'
+                                }`}
+                                style={{
+                                  backgroundColor: selectedFlags.includes(flagName)
+                                    ? '#6366f1'
+                                    : '#6366f11A', // Indigo 600, 10% opacity
+                                  borderColor: '#6366f1',
+                                  color: selectedFlags.includes(flagName) ? '#ffffff' : '#6366f1'
+                                }}
+                                aria-pressed={selectedFlags.includes(flagName)}
+                              >
+                                {flagName.replace(/^\\/, '')}
+                              </button>
+                            ))}
+                          </div>
+                          <p className="mt-2 text-xs text-gray-500">
+                            Select one or more flags to filter results. Results with any selected flag will be shown.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* Bulk actions */}
+                  {filteredResults.length > 0 && (
+                    <div className="mb-4">
+                      <BulkActionsMenu 
+                        isAllExpanded={isAllExpanded}
+                        onExpandAll={handleExpandAll}
+                        onCollapseAll={handleCollapseAll}
+                        onCopyAll={handleCopyAll}
+                        isCopyAllEnabled={filteredResults.some(item => 
+                          item.processed && item.result?.content
+                        )}
+                      />
+                    </div>
+                  )}
+                  
+                  {/* Unified email cards */}
+                  {filteredResults.length > 0 ? (
+                    <div className="space-y-4">
+                      {filteredResults.map(item => (
+                        <UnifiedEmailCard 
+                          key={item.id}
+                          item={item}
+                          isExpanded={expandedItems.includes(item.id)}
+                          isLoading={false}
+                          onToggleExpansion={handleToggleExpansion}
+                          onCopyContent={handleCopyContent}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 bg-gray-100 rounded-md border border-gray-300">
+                      <p className="text-gray-600">
+                        {uniqueTags.length > 0 && selectedTags.length > 0 
+                          ? 'No emails match the selected tag filters.'
+                          : 'No emails were found. Try adjusting your search criteria.'}
+                      </p>
+                    </div>
+                  )}
+                </>
+              ) : (
+                // Combined processing mode (not individual emails)
+                <div className="bg-white border rounded-md shadow-sm overflow-hidden">
+                  <div className="p-4 flex justify-end border-b border-gray-200">
+                    <button
+                      onClick={() => {
+                        if (typeof latestResults.results === 'string') {
+                          navigator.clipboard.writeText(latestResults.results);
+                          toast.success('Copied to clipboard');
+                        }
+                      }}
+                      className="px-3 py-1.5 text-sm rounded-md flex items-center transition-colors duration-200 bg-gray-200 text-gray-700 hover:bg-gray-300"
+                      title="Copy content to clipboard"
+                    >
+                      <Copy className="h-4 w-4 mr-1.5" /> Copy
+                    </button>
+                  </div>
+                  <div className="p-4 prose prose-sm max-w-none">
+                    {typeof latestResults.results === 'string' ? (
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {latestResults.results}
+                      </ReactMarkdown>
+                    ) : (
+                      <p className="text-gray-500 italic">No results returned.</p>
+                    )}
+                  </div>
+                </div>
+              )
+            ) : null}
           </div>
         )}
       </div>

@@ -5,8 +5,31 @@ import OpenAI from 'openai';
 import { useNavigate } from 'react-router-dom';
 import { substitutePromptVariables } from '../utils/promptUtils';
 
-// Helper function to send logs to the backend
+// Near the top of the file, add a debug flag
+const DEBUG_MODE = false; // Set to true only during development for verbose logging
+
+// Modify the logToServer function to filter more logs
 const logToServer = (level: 'log' | 'warn' | 'error', ...args: any[]) => {
+  // Skip verbose debug logs when not in debug mode
+  if (level === 'log') {
+    // Skip tag parsing logs unless in debug mode 
+    if (!DEBUG_MODE && args[0]?.includes('[TagParse]')) {
+      return;
+    }
+    
+    // Skip verbose prompt logs
+    if (args[0]?.includes('[EmailContext] Original Prompt:') || 
+        args[0]?.includes('[EmailContext] Substituted Prompt:') ||
+        args[0]?.includes('[EmailContext] Prompt (no substitutions made):')) {
+      return;
+    }
+    
+    // Skip verbose result structure logs
+    if (args[0]?.includes('Result structure:')) {
+      return;
+    }
+  }
+
   // Format arguments similar to how console.log would
   const message = args.map(arg => 
     typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
@@ -43,6 +66,7 @@ interface ProcessedEmailResult {
   originalUid: number | string; // Keep track of original email ID
   content: string | null; // The main text content from the LLM
   tags: string[]; // Array of extracted tag *names*
+  error?: string; // Added error field to track processing errors
 }
 
 interface QueryHistoryItem {
@@ -182,12 +206,17 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const data = await response.json();
       // Attach queryData reference for history tracking
       // Also ensure we have email body if backend provides it
-      const emailsWithMetadata = (data.emails || []).map((email: any) => ({
-        ...email,
-        // Ensure 'body' field exists, default to empty string if not provided by backend yet
-        body: email.body || '',
-        queryData,
-      }));
+      const emailsWithMetadata = (data.emails || []).map((email: any) => {
+        // Log email flags for debugging
+        logToServer('log', `[EmailContext][Flags] Email ID: ${email.id}, Subject: "${email.subject}", Flags: ${JSON.stringify(email.flags || [])}`);
+        
+        return {
+          ...email,
+          // Ensure 'body' field exists, default to empty string if not provided by backend yet
+          body: email.body || '',
+          queryData,
+        };
+      });
       return emailsWithMetadata;
     } catch (error) {
       // Keep console.error for actual client-side errors
@@ -209,12 +238,9 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     
     // ---> Substitute variables in the prompt <---
     const substitutedPrompt = substitutePromptVariables(prompt, promptVariables);
-    // Log the original and substituted prompt for debugging if needed
+    // Remove detailed prompt logging and replace with a simple count
     if (prompt !== substitutedPrompt) {
-        logToServer('log', '[EmailContext] Original Prompt:', prompt);
-        logToServer('log', '[EmailContext] Substituted Prompt:', substitutedPrompt);
-    } else {
-        logToServer('log', '[EmailContext] Prompt (no substitutions made):', prompt);
+      logToServer('log', `[EmailContext] Prompt with ${promptVariables.length} variables substituted`);
     }
     // ---> End Substitution <---
 
@@ -265,7 +291,10 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             let cleanedContent = individualResult;
 
             if (individualResult && definedTags.length > 0) {
-              logToServer('log', `[EmailContext][TagParse] Raw content for email ${index + 1}:`, JSON.stringify(individualResult)); // Log raw content
+              // Log only once at the start of tag parsing rather than for each tag
+              if (DEBUG_MODE) {
+                logToServer('log', `[EmailContext][TagParse] Raw content for email ${index + 1}:`, JSON.stringify(individualResult));
+              }
 
               // --- START New String Rebuilding Logic ---
               definedTags.forEach(tag => {
@@ -273,22 +302,25 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 const markerLower = marker.toLowerCase();
                 let contentLower = cleanedContent.toLowerCase(); // Lowercase for searching
                 
-                logToServer('log', `[EmailContext][TagParse] Checking for marker: ${marker}`);
-
                 // Check if marker *might* exist before entering loop
                 if (contentLower.includes(markerLower)) {
-                    logToServer('log', `[EmailContext][TagParse] Marker \"${marker}\" might exist. Entering removal loop.`);
+                    // Log only if in debug mode
+                    if (DEBUG_MODE) {
+                      logToServer('log', `[EmailContext][TagParse] Marker \"${marker}\" might exist. Entering removal loop.`);
+                    }
                     
                     // Add tag name ONCE if marker is found at least once
                     if (!extractedTagNames.includes(tag.name)) {
                        extractedTagNames.push(tag.name);
+                       // Keep this important log as it shows what tags were found
                        logToServer('log', `[EmailContext][TagParse] Added tag name: ${tag.name}`);
                     }
 
                     // Loop to remove ALL occurrences using string rebuilding
                     let startIndex = contentLower.indexOf(markerLower);
                     while (startIndex > -1) {
-                        logToServer('log', `[EmailContext][TagParse] Found \"${marker}\" at index ${startIndex}.`);
+                        // Remove per-occurrence logs that create lots of noise
+                        // logToServer('log', `[EmailContext][TagParse] Found \"${marker}\" at index ${startIndex}.`);
                         const endIndex = startIndex + marker.length;
                         const beforeRemoval = cleanedContent;
                         
@@ -296,28 +328,34 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                         cleanedContent = cleanedContent.substring(0, startIndex) + cleanedContent.substring(endIndex);
                         contentLower = cleanedContent.toLowerCase(); // Update lower case version for next search
                         
-                        logToServer('log', `[EmailContext][TagParse] Content after removing occurrence at ${startIndex}:`, JSON.stringify(cleanedContent));
-                         if (beforeRemoval === cleanedContent) {
+                        // Remove this noisy log
+                        // logToServer('log', `[EmailContext][TagParse] Content after removing occurrence at ${startIndex}:`, JSON.stringify(cleanedContent));
+                        if (beforeRemoval === cleanedContent) {
                            logToServer('error', `[EmailContext][TagParse] FAILED TO REMOVE marker \"${marker}\" at index ${startIndex}. Content unchanged. Breaking loop.`);
                            break; // Prevent infinite loop if removal somehow fails
-                         }
+                        }
 
                         // Find the next occurrence in the modified string
                         startIndex = contentLower.indexOf(markerLower, startIndex); // Start next search from current index
                     }
-                     logToServer('log', `[EmailContext][TagParse] Finished removal loop for marker \"${marker}\".`);
+                    // Remove end of loop log
+                    // logToServer('log', `[EmailContext][TagParse] Finished removal loop for marker \"${marker}\".`);
                 } else {
-                   // Optional: Log if a specific marker wasn't found
+                   // Already commented out
                    // logToServer('log', `[EmailContext][TagParse] Marker not found initially: ${marker}`);
                 }
               });
               // --- END New String Rebuilding Logic ---
             
             } else {
-               logToServer('log', `[EmailContext][TagParse] No content or no defined tags for email ${index + 1}. Skipping parsing.`);
+               // Skip this verbose log
+               // logToServer('log', `[EmailContext][TagParse] No content or no defined tags for email ${index + 1}. Skipping parsing.`);
             }
             logToServer('log', `[EmailContext][TagParse] Final extracted tags for email ${index + 1}:`, extractedTagNames);
-            logToServer('log', `[EmailContext][TagParse] Final cleaned content for email ${index + 1}:`, JSON.stringify(cleanedContent));
+            // But make content logging conditional based on debug mode
+            if (DEBUG_MODE) {
+              logToServer('log', `[EmailContext][TagParse] Final cleaned content for email ${index + 1}:`, JSON.stringify(cleanedContent));
+            }
             // --- END Tag Parsing Logic ---
 
             // Construct the ProcessedEmailResult object
@@ -332,28 +370,35 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
           } catch (error: any) {
              logToServer('error', `[EmailContext] Error processing email ${index + 1}/${emails.length}:`, error.message);
-             // Still create a result object, but with error content and no tags
+             // Still create a result object, but with error content and error field
              processedData = {
                subject: email.subject || '(No Subject)',
                sender: email.sender || 'N/A',
                date: email.date,
                originalUid: email.id,
-               content: `(Error processing email ${index + 1}: ${error.message})`,
+               content: `Error processing this email: ${error.message}`,
                tags: [],
+               error: error.message, // Add the error message to the result
              };
           }
           // Return the structured result object (or null if something went wrong before try/catch)
           return processedData;
         });
 
-        // Filter out any null results in case of unexpected errors before try/catch
-        const processedResultsArray = (await Promise.all(processedResultsPromises))
-                                          .filter((item): item is ProcessedEmailResult => item !== null);
-        
-        // The result IS the array of processed objects
-        result = processedResultsArray; 
+        try {
+          // Filter out any null results in case of unexpected errors before try/catch
+          const processedResultsArray = (await Promise.all(processedResultsPromises))
+                                            .filter((item): item is ProcessedEmailResult => item !== null);
+          
+          // The result IS the array of processed objects
+          result = processedResultsArray; 
 
-        logToServer('log', '[EmailContext] Finished individual email processing. Result structure:', result);
+          logToServer('log', '[EmailContext] Finished individual email processing. Result structure:', result);
+        } catch (error: any) {
+          // Handle errors in the Promise.all itself
+          logToServer('error', '[EmailContext] Error during Promise.all for email processing:', error.message);
+          throw new Error(`Error processing emails in batch: ${error.message}`);
+        }
         // --- END Individual OpenAI API Calls ---
 
       } else {
@@ -406,6 +451,27 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           timestamp: Date.now(), 
           processIndividually: processIndividually 
       });
+
+      // After processing, only log a summary instead of the entire result structure
+      if (processIndividually) {
+        const resultArray = result as ProcessedEmailResult[];
+        const tagCounts: Record<string, number> = {};
+        
+        // Count tags for summary
+        resultArray.forEach(item => {
+          if (item.tags && Array.isArray(item.tags)) {
+            item.tags.forEach(tag => {
+              tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+            });
+          }
+        });
+        
+        // Log a summary instead of the full structure
+        logToServer('log', `[EmailContext] Finished processing ${resultArray.length} emails individually`);
+        logToServer('log', `[EmailContext] Tag summary: ${JSON.stringify(tagCounts)}`);
+      } else {
+        logToServer('log', '[EmailContext] Finished batch email processing');
+      }
 
       // Return the result (string or array)
       return result; 

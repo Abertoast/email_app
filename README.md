@@ -14,6 +14,9 @@ A web-based tool to connect to your email account via IMAP, fetch emails, and pr
 *   **Variable Substitution:** Use variables like `{SUBJECT}` or `{SENDER}` in prompts.
 *   **Query History:** View past queries (filters, prompt, results) and re-run them.
 *   **Local Operation:** Runs primarily in the browser, using a lightweight backend only as an IMAP proxy.
+*   **Unified Email & Result Cards:** Fetched emails and their AI-processed results are now displayed together in a single, unified card for each email, making it easier to review and act on results.
+*   **Advanced Filtering:** Filter results using both tags (AI-extracted) and flags (labels/folders). The filter UI supports "OR" logic within tags or flags, and "AND" logic between the two groups, so you can find emails matching any selected tag and any selected flag.
+*   **Merged Label/Folder Chips:** Labels and folders are visually merged in the UI, with duplicate names shown only once and clear color coding for system/user labels and folders.
 
 ## Technology Stack
 
@@ -75,6 +78,10 @@ A web-based tool to connect to your email account via IMAP, fetch emails, and pr
     *   Fetched emails will appear in the list.
     *   The AI processing results will be displayed below.
 4.  **Prompt Library / Query History:** Explore these pages to manage saved prompts and view past query results.
+4.  **Filtering & Results:**
+    *   Results are shown as unified cards, each displaying the original email, its AI-processed content, and all associated tags, labels, and folders.
+    *   Use the filter UI above the results to filter by any combination of tags and flags (labels/folders). Tags and flags use "OR" logic within their group, and "AND" logic between groups.
+    *   Merged chips show all unique labels and folders for each email, with labels taking precedence if names overlap.
 
 ## Architecture Overview
 
