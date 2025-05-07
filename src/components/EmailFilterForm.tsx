@@ -1,25 +1,89 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import DateRangePicker from './DateRangePicker';
 import { Clock, Filter } from 'lucide-react';
 
 interface EmailFilterFormProps {
   onSubmit: (data: { formData: any; processIndividually: boolean; groupBySubject: boolean }) => void;
   isLoading: boolean;
+  initialValues?: any;
 }
 
-const EmailFilterForm: React.FC<EmailFilterFormProps> = ({ onSubmit, isLoading }) => {
-  const [formData, setFormData] = useState({
-    dateRange: 'last24hours',
-    startDate: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    endDate: new Date().toISOString().split('T')[0],
-    status: 'unread',
-    maxResults: 20,
-    folder: 'INBOX',
-    subjectSearchTerm: '',
-    fetchAllFolders: false,
-  });
-  const [processIndividually, setProcessIndividually] = useState(false);
-  const [groupBySubject, setGroupBySubject] = useState(true);
+const LOCAL_STORAGE_KEY = 'emailai-last-email-filters';
+
+const EmailFilterForm: React.FC<EmailFilterFormProps> = ({ onSubmit, isLoading, initialValues }) => {
+  // Load initial state from localStorage if available
+  const getInitialFormData = () => {
+    try {
+      const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // Defensive: Only use known keys
+        return {
+          dateRange: parsed.dateRange || 'last24hours',
+          startDate: parsed.startDate || new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+          endDate: parsed.endDate || new Date().toISOString().split('T')[0],
+          status: parsed.status || 'unread',
+          maxResults: parsed.maxResults || 20,
+          folder: parsed.folder || 'INBOX',
+          subjectSearchTerm: parsed.subjectSearchTerm || '',
+          fetchAllFolders: parsed.fetchAllFolders || false,
+        };
+      }
+    } catch (e) {
+      // Ignore parse errors
+    }
+    // Default values
+    return {
+      dateRange: 'last24hours',
+      startDate: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      endDate: new Date().toISOString().split('T')[0],
+      status: 'unread',
+      maxResults: 20,
+      folder: 'INBOX',
+      subjectSearchTerm: '',
+      fetchAllFolders: false,
+    };
+  };
+
+  const getInitialToggle = (key: string, defaultValue: boolean) => {
+    try {
+      const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (typeof parsed[key] === 'boolean') return parsed[key];
+      }
+    } catch {}
+    return defaultValue;
+  };
+
+  const [formData, setFormData] = useState(getInitialFormData);
+  const [processIndividually, setProcessIndividually] = useState(() => getInitialToggle('processIndividually', false));
+  const [groupBySubject, setGroupBySubject] = useState(() => getInitialToggle('groupBySubject', true));
+
+  // Update form state when initialValues prop changes (for rerun)
+  useEffect(() => {
+    if (initialValues) {
+      setFormData({
+        ...getInitialFormData(),
+        ...initialValues,
+      });
+      if (typeof initialValues.processIndividually === 'boolean') setProcessIndividually(initialValues.processIndividually);
+      if (typeof initialValues.groupBySubject === 'boolean') setGroupBySubject(initialValues.groupBySubject);
+    }
+    // eslint-disable-next-line
+  }, [initialValues]);
+
+  // Persist to localStorage on any change
+  useEffect(() => {
+    localStorage.setItem(
+      LOCAL_STORAGE_KEY,
+      JSON.stringify({
+        ...formData,
+        processIndividually,
+        groupBySubject,
+      })
+    );
+  }, [formData, processIndividually, groupBySubject]);
   
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target;
@@ -170,13 +234,13 @@ const EmailFilterForm: React.FC<EmailFilterFormProps> = ({ onSubmit, isLoading }
           className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
         />
         <label htmlFor="fetchAllFolders" className="ml-2 block text-sm text-gray-900">
-          Fetch from all folders (includes Archive, etc.)
+          Fetch from all folders
         </label>
       </div>
       
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">
-          Subject Search (Optional)
+          Subject Search
         </label>
         <input
           type="text"

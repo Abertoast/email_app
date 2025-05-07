@@ -75,8 +75,8 @@ The application follows a client-server architecture, but with a heavy emphasis 
         -   Manages query history (`queryHistory`) and latest processing results (`latestResults`). The structure for results when processed individually (`ProcessedEmailResult`) now includes a `tags: string[]` array intended to hold extracted tag names.
         -   Provides `fetchEmails` function: retrieves settings from `SettingsContext`, calls backend `/api/fetchEmails` (including the `fetchAllFolders` flag), returns fetched emails.
         -   Provides `processEmails` function: retrieves OpenAI settings from `SettingsContext`, substitutes variables into the prompt using `utils/promptUtils.ts`, **calls the OpenAI Chat Completions API directly from the browser using the `openai` library**, handles individual vs. combined email processing. **Note:** The logic to parse `[[Tag Markers]]` from the response, remove them, and populate the `tags` array in `ProcessedEmailResult` is currently missing/inactive.
-        -   Provides functions to manage query history (save, clear, rerun), which now store the new result structure.
-        -   Loads/saves query history to `localStorage`.
+        -   Provides functions to manage query history (save, clear, rerun), which now store the new result structure. **Query history now also stores the raw emails fetched for each query (`rawEmails`) and optional UI state (`uiState`), enabling full results replay.**
+        -   Loads/saves query history to `localStorage` (with migration for old entries).
         -   Includes `logToServer` utility to send frontend logs to `/api/log`.
 -   **Key Pages & Components**:
     -   **`Dashboard.tsx`**: The main interface. Contains the `EmailFilterForm`, prompt input/selection (`SavedPromptSelector`, custom textarea), displays fetched emails, triggers fetching and processing via `EmailContext`, and displays results using `ProcessingResults`. Includes buttons below the custom prompt textarea to insert prompt variables and **tag markers**.
@@ -85,7 +85,8 @@ The application follows a client-server architecture, but with a heavy emphasis 
     -   **`PromptVariablesManager.tsx`**: Component for managing prompt variables (CRUD operations).
     -   **`TagManager.tsx`**: Component for managing prompt tags (CRUD operations via modal). Simplifies creation by only asking for a Name and Color, automatically generating the `[[Marker]]` from the name.
     -   **`ProcessingResults.tsx` & `UnifiedEmailCard.tsx`**: Results are now shown as unified cards, each displaying the original email, its AI-processed content, and all associated tags, labels, and folders (with merged chips for labels/folders). The filter UI above the results allows filtering by any combination of tags and flags (labels/folders), using "OR" logic within each group and "AND" logic between groups. Includes a "Clear Filters" button and a "Copy All" button for filtered results.
-    -   **`QueryHistory.tsx`**: Displays past queries (filters and prompt used) and their results (handling both combined string results and individual array results). Allows re-running past queries.
+    -   **`QueryHistory.tsx`**: Displays past queries (filters and prompt used) and their results (handling both combined string results and individual array results). Allows re-running past queries. **Now includes a "Show Results" button for each query, which opens a dedicated results view page (`/history/:id/results`) showing the exact results and emails as they were at the time of the query.**
+    -   **`HistoryResultsView.tsx`**: Dedicated page for viewing the results of a past query, including all processed results, raw emails, and filter/exploration UI. Lets users explore, filter, and copy results as if they had just run the query.
 -   **Layout (`Layout.tsx`)**: Provides the main application frame.
 
 ## Data Flow (Main Workflow)
@@ -106,7 +107,7 @@ The application follows a client-server architecture, but with a heavy emphasis 
 14. **(Missing Step)** `EmailContext` is supposed to parse the AI response, identify defined `[[Tag Markers]]`, remove them from the content, and store the corresponding tag names in a `tags` array on the result object.
 15. `EmailContext` updates `latestResults` state with the processed content (and potentially tags). `Dashboard` displays the results via `ProcessingResults`.
 16. **Tag & Flag Display/Filter**: `ProcessingResults` (and `Dashboard`) read `latestResults`. If individual processing was used, results are shown as unified cards with merged label/folder chips and tag badges. The filter UI allows filtering by tags and flags (labels/folders), using OR logic within each group and AND logic between groups.
-17. **History**: `EmailContext` saves the query, prompt, and results (including the `tags` array, if it were populated) to `localStorage`.
+17. **History**: `EmailContext` saves the query, prompt, and results (including the `tags` array, if it were populated) to `localStorage`. **Now also saves the raw emails and UI state, enabling full replay of past results.**
 
 ## Security Considerations
 
@@ -116,4 +117,4 @@ The application follows a client-server architecture, but with a heavy emphasis 
 
 ## Summary
 
-The Email AI Processor is a functional prototype demonstrating how to fetch emails via IMAP and process them using AI. It now features unified cards for each email/result, advanced filtering by tags and flags (labels/folders) with intuitive UI (OR logic within tags/flags, AND logic between groups), and merged label/folder chips for clarity. It heavily relies on client-side logic and `localStorage` for simplicity, but this comes with significant security drawbacks regarding credential handling (OpenAI key and email password). The backend serves primarily as an IMAP proxy. Core features include configurable email fetching, custom/saved prompt execution, prompt variable substitution, prompt tag management/insertion/display/filtering, a "Copy All" feature for filtered results, and query history. 
+The Email AI Processor is a functional prototype demonstrating how to fetch emails via IMAP and process them using AI. It now features unified cards for each email/result, advanced filtering by tags and flags (labels/folders) with intuitive UI (OR logic within tags/flags, AND logic between groups), and merged label/folder chips for clarity. **The Query History feature now allows users to view the exact results of any past query, including all processed results and raw emails, via a dedicated results view.** It heavily relies on client-side logic and `localStorage` for simplicity, but this comes with significant security drawbacks regarding credential handling (OpenAI key and email password). The backend serves primarily as an IMAP proxy. Core features include configurable email fetching, custom/saved prompt execution, prompt variable substitution, prompt tag management/insertion/display/filtering, a "Copy All" feature for filtered results, and query history with full results replay. 

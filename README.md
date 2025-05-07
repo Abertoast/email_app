@@ -13,6 +13,7 @@ A web-based tool to connect to your email account via IMAP, fetch emails, and pr
 *   **Prompt Library:** Save and reuse frequently used prompts.
 *   **Variable Substitution:** Use variables like `{SUBJECT}` or `{SENDER}` in prompts.
 *   **Query History:** View past queries (filters, prompt, results) and re-run them.
+*   **Query History Results Replay:** Instantly view the exact results of any past query, including all processed results and raw emails, via a dedicated results view. Explore, filter, and copy results as if you had just run the query.
 *   **Local Operation:** Runs primarily in the browser, using a lightweight backend only as an IMAP proxy.
 *   **Unified Email & Result Cards:** Fetched emails and their AI-processed results are now displayed together in a single, unified card for each email, making it easier to review and act on results.
 *   **Advanced Filtering:** Filter results using both tags (AI-extracted) and flags (labels/folders). The filter UI supports "OR" logic within tags or flags, and "AND" logic between the two groups, so you can find emails matching any selected tag and any selected flag.
@@ -78,6 +79,7 @@ A web-based tool to connect to your email account via IMAP, fetch emails, and pr
     *   Fetched emails will appear in the list.
     *   The AI processing results will be displayed below.
 4.  **Prompt Library / Query History:** Explore these pages to manage saved prompts and view past query results.
+    *   In Query History, use the new "Show Results" button to open a dedicated results view for any past query, displaying all emails and results as they were at the time of the query. You can filter, expand, and copy results just like on the dashboard.
 4.  **Filtering & Results:**
     *   Results are shown as unified cards, each displaying the original email, its AI-processed content, and all associated tags, labels, and folders.
     *   Use the filter UI above the results to filter by any combination of tags and flags (labels/folders). Tags and flags use "OR" logic within their group, and "AND" logic between groups.
@@ -87,7 +89,7 @@ A web-based tool to connect to your email account via IMAP, fetch emails, and pr
 
 The application uses a client-heavy architecture:
 
-*   **Frontend (React SPA):** Handles UI, state management, `localStorage` persistence, routing, and **direct calls to the OpenAI API**.
+*   **Frontend (React SPA):** Handles UI, state management, `localStorage` persistence, routing, and **direct calls to the OpenAI API**. **Query history now stores the raw emails and UI state for each query, enabling full replay of past results.**
 *   **Backend (Node.js/Express API):** Acts primarily as an **IMAP proxy**. It receives fetch requests from the frontend, connects to the IMAP server, retrieves emails, parses them, and sends the structured data back to the frontend. It does *not* handle OpenAI API calls.
 
 ## Security Considerations

@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import OpenAI from 'openai';
 import { useNavigate } from 'react-router-dom';
 import { substitutePromptVariables } from '../utils/promptUtils';
+import { v4 as uuidv4 } from 'uuid';
 
 // Near the top of the file, add a debug flag
 const DEBUG_MODE = false; // Set to true only during development for verbose logging
@@ -56,6 +57,7 @@ interface EmailQuery {
   maxResults: number;
   subjectSearchTerm?: string;
   fetchAllFolders: boolean;
+  groupBySubject?: boolean;
 }
 
 // Structure for a single processed email result
@@ -70,12 +72,20 @@ interface ProcessedEmailResult {
 }
 
 interface QueryHistoryItem {
+  historyId: string;
   timestamp: number;
   queryData: EmailQuery;
   prompt: string;
-  // Results can be a single string (combined) or an array (individual)
+  promptType: 'custom' | 'saved';
+  promptId: string | null;
   results: string | ProcessedEmailResult[] | null;
   processIndividually: boolean;
+  rawEmails: any[]; // NEW: store the raw emails fetched for the query
+  uiState?: {
+    expandedItems: string[];
+    selectedTags: string[];
+    selectedFlags: string[];
+  }; // NEW: optional UI state for restoring exploration
 }
 
 // Define structure for latest results
@@ -92,12 +102,18 @@ const MODELS_SUPPORTING_TEMP = new Set(['gpt-4o', 'gpt-4.1']);
 interface EmailContextType {
   fetchEmails: (queryData: EmailQuery) => Promise<any[]>;
   // processEmails returns type now depends on processIndividually
-  processEmails: (emails: any[], prompt: string, processIndividually: boolean) => Promise<string | ProcessedEmailResult[]>;
+  processEmails: (
+    emails: any[],
+    prompt: string,
+    processIndividually: boolean,
+    promptType?: 'custom' | 'saved',
+    promptId?: string | null
+  ) => Promise<string | ProcessedEmailResult[]>;
   isFetching: boolean;
   isProcessing: boolean;
   queryHistory: QueryHistoryItem[];
   clearQueryHistory: () => void;
-  rerunQuery: (queryData: EmailQuery, navigate: ReturnType<typeof useNavigate>) => void;
+  rerunQuery: (queryData: EmailQuery, navigate: ReturnType<typeof useNavigate>, historyId?: string) => void;
   latestResults: LatestResults | null;
   clearLatestResults: () => void;
 }
@@ -113,7 +129,7 @@ export const useEmail = () => {
 };
 
 export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { settings, promptVariables, tags: definedTags } = useSettings();
+  const { settings, savedPrompts, promptVariables, tags: definedTags } = useSettings();
   const [isFetching, setIsFetching] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [queryHistory, setQueryHistory] = useState<QueryHistoryItem[]>([]);
@@ -124,34 +140,52 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const storedHistory = localStorage.getItem('emailai-query-history');
     if (storedHistory) {
       try {
-        // Basic check: if results is a string, it's likely old format or combined.
-        // More robust migration could be added if needed.
         const parsedHistory = JSON.parse(storedHistory);
-        setQueryHistory(parsedHistory);
+        // MIGRATION: Add missing fields for old items
+        const migrated = parsedHistory.map((item: any) => ({
+          ...item,
+          queryData: {
+            ...item.queryData,
+            groupBySubject: item.queryData?.groupBySubject ?? false,
+          },
+          promptType: item.promptType || 'custom',
+          promptId: typeof item.promptId !== 'undefined' ? item.promptId : null,
+          rawEmails: Array.isArray(item.rawEmails) ? item.rawEmails : [], // fallback for old items
+          // uiState is optional, fallback to undefined
+        }));
+        setQueryHistory(migrated);
       } catch (error) {
         console.error('Failed to parse stored query history', error);
-        localStorage.removeItem('emailai-query-history'); // Clear corrupted data
+        localStorage.removeItem('emailai-query-history');
       }
     }
   }, []);
   
   const saveQueryToHistory = (
-      query: EmailQuery, 
-      prompt: string, 
-      results: string | ProcessedEmailResult[] | null, 
-      processIndividually: boolean
+    query: EmailQuery,
+    prompt: string,
+    results: string | ProcessedEmailResult[] | null,
+    processIndividually: boolean,
+    promptType: 'custom' | 'saved',
+    promptId: string | null,
+    rawEmails: any[], // NEW
+    uiState?: { expandedItems: string[]; selectedTags: string[]; selectedFlags: string[] } // NEW
   ) => {
     const newHistory = [
       {
+        historyId: uuidv4(),
         timestamp: Date.now(),
         queryData: query,
         prompt,
-        results, // Save the potentially structured results
-        processIndividually
+        promptType,
+        promptId,
+        results,
+        processIndividually,
+        rawEmails,
+        uiState,
       },
       ...queryHistory
-    ].slice(0, 20); // Keep only the last 20 queries
-    
+    ].slice(0, 20);
     setQueryHistory(newHistory);
     localStorage.setItem('emailai-query-history', JSON.stringify(newHistory));
   };
@@ -227,7 +261,13 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
   
-  const processEmails = async (emails: any[], prompt: string, processIndividually: boolean) => {
+  const processEmails = async (
+    emails: any[],
+    prompt: string,
+    processIndividually: boolean,
+    promptType: 'custom' | 'saved' = 'custom',
+    promptId: string | null = null
+  ) => {
     if (!settings.openaiApiKey) {
       throw new Error('OpenAI API key not configured');
     }
@@ -442,7 +482,11 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         queryDataToSave,
         prompt, // <-- Save original prompt
         result, // Pass the result directly (now typed correctly)
-        processIndividually
+        processIndividually,
+        promptType,
+        promptId,
+        emails, // Pass rawEmails
+        undefined // Pass undefined for uiState for now
       );
       
       // Update latest results state
@@ -499,7 +543,11 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         queryDataToSave,
         prompt, // <-- Save original prompt
         errorResultToSave, // Save error string
-        processIndividually
+        processIndividually,
+        promptType,
+        promptId,
+        emails, // Pass rawEmails (may be empty)
+        undefined // Pass undefined for uiState
       );
       
       // Update latest results state with error
@@ -519,60 +567,35 @@ export const EmailProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setLatestResults(null);
   };
 
-  const rerunQuery = async (queryData: EmailQuery, navigate: ReturnType<typeof useNavigate>) => {
-    if (!settings.emailConnected) {
-      toast.error('Please connect your email in settings first');
+  const rerunQuery = (
+    queryData: EmailQuery,
+    navigate: ReturnType<typeof useNavigate>,
+    historyId?: string
+  ) => {
+    let historyItem;
+    if (historyId) {
+      historyItem = queryHistory.find(item => item.historyId === historyId);
+    } else {
+      historyItem = queryHistory.find(item => JSON.stringify(item.queryData) === JSON.stringify(queryData));
+    }
+    if (!historyItem) {
+      toast.error('Query not found in history');
       return;
     }
-    
-    if (!settings.openaiApiKey) {
-      toast.error('Please add your OpenAI API key in settings');
-      return;
-    }
-    
-    // Clear previous latest results before starting rerun
-    clearLatestResults(); 
-    
-    // Navigate immediately to dashboard
-    navigate('/'); 
-    toast('Rerunning query on the dashboard...'); // Give feedback
-
-    try {
-      // Find the prompt associated with this query in history
-      const historyItem = queryHistory.find(
-        item => JSON.stringify(item.queryData) === JSON.stringify(queryData)
-      );
-      
-      if (!historyItem) {
-        toast.error('Query not found in history');
-        return;
+    // Pass all needed info to Dashboard via navigation state
+    navigate('/', {
+      state: {
+        rerun: {
+          formData: historyItem.queryData,
+          processIndividually: historyItem.processIndividually,
+          groupBySubject: historyItem.queryData.groupBySubject ?? false,
+          promptType: historyItem.promptType,
+          promptId: historyItem.promptId,
+          prompt: historyItem.prompt,
+        }
       }
-      
-      // Extract the processIndividually setting from the history item
-      const shouldProcessIndividually = historyItem.processIndividually;
-      logToServer('log', `[EmailContext] Rerunning query. Process individually: ${shouldProcessIndividually}`); // Log the setting
-
-      // We need to re-fetch emails potentially, as they might have changed
-      // Re-use the stored queryData from history
-      const emails = await fetchEmails(historyItem.queryData);
-      
-      if (emails.length === 0) {
-        toast('No emails found matching your criteria for rerun');
-        // Still save the attempt to history? Maybe not if no emails found.
-        return;
-      }
-      
-      // Note: processEmails will handle the substitution using the prompt from historyItem.prompt
-      const result = await processEmails(emails, historyItem.prompt, shouldProcessIndividually);
-      
-      // Result is already saved to history and latestResults state updated within processEmails
-      toast.success('Query rerun and processed successfully');
-      // Optionally, update UI state if needed to display the new result
-    } catch (error) {
-      // Error is already toasted and saved to latestResults within processEmails or fetchEmails
-      // Keep console.error for actual client-side errors
-      console.error('Error rerunning query:', error);
-    }
+    });
+    toast('Rerunning query on the dashboard...');
   };
   
   return (

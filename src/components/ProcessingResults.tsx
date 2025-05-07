@@ -7,10 +7,22 @@ import type { Components } from 'react-markdown';
 import { useEmail } from '../contexts/EmailContext'; // Import useEmail
 import { useSettings, Tag } from '../contexts/SettingsContext'; // Import useSettings and Tag
 
+export type ProcessingResultsProps = {
+  results?: any[] | string | null;
+  processIndividually?: boolean;
+  definedTags?: Tag[];
+};
+
 // No longer needs props
-const ProcessingResults: React.FC = () => {
+const ProcessingResults: React.FC<ProcessingResultsProps> = ({
+  results,
+  processIndividually,
+  definedTags,
+}) => {
   const { latestResults } = useEmail(); // Get latestResults from context
-  const { tags: definedTags } = useSettings(); // Get defined tags for color lookups
+  const settingsContext = useSettings();
+  // Use prop if provided, otherwise fallback to context
+  const tags = definedTags ?? settingsContext.tags;
   const [copiedStates, setCopiedStates] = useState<Record<string | number, boolean>>({});
   const [selectedFilterTags, setSelectedFilterTags] = useState<string[]>([]); // State for active tag filters
   const [isCopyAllCopied, setIsCopyAllCopied] = useState(false); // State for Copy All button
@@ -38,8 +50,8 @@ const ProcessingResults: React.FC = () => {
   };
 
   // Determine if results are individual or combined
-  const isIndividual = latestResults.processIndividually && Array.isArray(latestResults.results);
-  const resultsData = latestResults.results;
+  const isIndividual = processIndividually && Array.isArray(results);
+  const resultsData = results;
 
   // --- Filtering Logic ---
   // Calculate unique available tags from the current results
@@ -99,7 +111,7 @@ const ProcessingResults: React.FC = () => {
   };
 
   const getTagColor = (tagName: string): string => {
-    const tag = definedTags.find(t => t.name === tagName);
+    const tag = tags.find(t => t.name === tagName);
     return tag?.color || '#cccccc'; // Default grey if tag not found
   };
 

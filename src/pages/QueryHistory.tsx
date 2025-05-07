@@ -19,8 +19,8 @@ const QueryHistory: React.FC = () => {
     return new Date(timestamp).toLocaleString();
   };
   
-  const handleRerun = (queryData: any) => {
-    rerunQuery(queryData, navigate);
+  const handleRerun = (query: any) => {
+    rerunQuery(query.queryData, navigate, query.historyId);
   };
 
   return (
@@ -67,13 +67,22 @@ const QueryHistory: React.FC = () => {
                     <Clock className="h-4 w-4 mr-1" />
                     <span>{formatDate(query.timestamp)}</span>
                   </div>
-                  <button
-                    onClick={() => handleRerun(query.queryData)}
-                    className="px-3 py-1 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors duration-200 flex items-center text-sm"
-                  >
-                    <ArrowRight className="h-3 w-3 mr-1" />
-                    Run Again
-                  </button>
+                  <div className="flex items-center">
+                    <button
+                      onClick={() => handleRerun(query)}
+                      className="px-3 py-1 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors duration-200 flex items-center text-sm"
+                    >
+                      <ArrowRight className="h-3 w-3 mr-1" />
+                      Run Again
+                    </button>
+                    <button
+                      onClick={() => navigate(`/history/${query.historyId}/results`)}
+                      className="ml-2 px-3 py-1 bg-green-100 text-green-700 rounded-md hover:bg-green-200 transition-colors duration-200 flex items-center text-sm"
+                    >
+                      <Search className="h-3 w-3 mr-1" />
+                      Show Results
+                    </button>
+                  </div>
                 </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -99,17 +108,29 @@ const QueryHistory: React.FC = () => {
                         </div>
                         <div>
                           <span className="font-medium">Folder:</span> 
-                          <span className="text-gray-600 ml-1">{query.queryData.folder}</span>
+                          <span className="text-gray-600 ml-1">
+                            {query.queryData.fetchAllFolders ? 'All Folders' : query.queryData.folder}
+                          </span>
                         </div>
                         <div>
                           <span className="font-medium">Max Results:</span> 
                           <span className="text-gray-600 ml-1">{query.queryData.maxResults}</span>
                         </div>
+                        {query.queryData.subjectSearchTerm && (
+                          <div className="col-span-2">
+                            <span className="font-medium">Subject Search:</span>
+                            <span className="text-gray-600 ml-1">{query.queryData.subjectSearchTerm}</span>
+                          </div>
+                        )}
                         <div className="col-span-2">
                           <span className="font-medium">Processed Individually:</span> 
                           <span className="text-gray-600 ml-1">
                             {query.processIndividually ? 'Yes' : 'No'} 
                           </span>
+                        </div>
+                        <div className="col-span-2">
+                          <span className="font-medium">Grouped by Subject:</span>
+                          <span className="text-gray-600 ml-1">{query.queryData.groupBySubject ? 'Yes' : 'No'}</span>
                         </div>
                       </div>
                     </div>
@@ -121,7 +142,30 @@ const QueryHistory: React.FC = () => {
                       Prompt Used
                     </h3>
                     <div className="bg-gray-50 rounded-md p-3 text-sm">
-                      <p className="text-gray-600 line-clamp-3">{query.prompt}</p>
+                      <div className="mb-1">
+                        <span className="font-medium">Type:</span>
+                        <span className="ml-1 text-gray-600">
+                          {query.promptType === 'saved' ? 'Saved Prompt' : 'Custom Prompt'}
+                        </span>
+                        {query.promptType === 'saved' && (
+                          <>
+                            <span className="ml-2 font-medium">Name:</span>
+                            <span className="ml-1 text-gray-600">
+                              {/* Try to get the prompt name from localStorage or show fallback */}
+                              {(() => {
+                                try {
+                                  const prompts = JSON.parse(localStorage.getItem('emailai-prompts') || '[]');
+                                  const found = prompts.find((p: any) => p.id === query.promptId);
+                                  return found ? found.name : <span className="text-red-500">(Deleted)</span>;
+                                } catch {
+                                  return <span className="text-red-500">(Unknown)</span>;
+                                }
+                              })()}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                      <p className="text-gray-600 line-clamp-3 whitespace-pre-line">{query.prompt}</p>
                     </div>
                   </div>
                 </div>

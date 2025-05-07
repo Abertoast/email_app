@@ -1,5 +1,5 @@
 {
-  "updateId": "20250503-unified-cards-filters",
-  "title": "Unified Cards & Advanced Filtering!",
-  "description": "We've redesigned the results UI! Emails and their AI-processed results now appear together in unified cards, making it easier to review and act on your messages.\n\nYou can now filter results using both tags (AI-extracted) and flags (labels/folders). The new filter UI supports \"OR\" logic within tags or flags, and \"AND\" logic between the two groups—so you can find emails matching any selected tag and any selected flag.\n\nLabels and folders are now visually merged as chips, with duplicate names shown only once and clear color coding for system/user labels and folders.\n\nTry out the new experience and let us know what you think!"
+  "updateId": "20250507-query-history-show-results",
+  "title": "Query History: View Past Results!",
+  "description": "You can now instantly view the exact results of any past query! The Query History page features a new \"Show Results\" button for each entry. Click it to open a dedicated results view, where you'll see all emails and AI-processed results as they were at the time of the query. Explore, filter, and copy results just like on the dashboard. This makes it easy to revisit, share, or analyze previous queries—no need to re-run them."
 } 

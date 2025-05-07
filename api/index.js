@@ -147,6 +147,7 @@ async function fetchAndParseEmailsFromFolder(imap, folderName, searchCriteria, m
                 date: attributes.date,
                 read: attributes.flags.includes('\\Seen'),
                 flags: attributes['x-gm-labels'] || attributes.flags || [], // Fallback to flags if x-gm-labels not present
+                gmThreadId: attributes['x-gm-thrid'] || null, // NEW: Gmail thread id for grouping
                 body: parsed.text || (parsed.html ? '[HTML content only]' : '(no text body found)'),
                 folder: folderName // Add folder information
               });
@@ -162,6 +163,7 @@ async function fetchAndParseEmailsFromFolder(imap, folderName, searchCriteria, m
                 date: attributes.date,
                 read: attributes.flags.includes('\\Seen'),
                 flags: attributes['x-gm-labels'] || attributes.flags || [],
+                gmThreadId: attributes['x-gm-thrid'] || null, // NEW: Gmail thread id for grouping
                 body: `(parse error: ${parseErr.message})`,
                 folder: folderName // Add folder information even on error
               });

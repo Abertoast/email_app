@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard';
 import Settings from './pages/Settings';
 import PromptLibrary from './pages/PromptLibrary';
 import QueryHistory from './pages/QueryHistory';
+import HistoryResultsView from './pages/HistoryResultsView';
 import { EmailProvider } from './contexts/EmailContext';
 import { SettingsProvider } from './contexts/SettingsContext';
 import UpdateNotificationModal from './components/UpdateNotificationModal';
@@ -126,6 +127,7 @@ function App() {
               <Route path="/settings" element={<Settings />} />
               <Route path="/prompts" element={<PromptLibrary />} />
               <Route path="/history" element={<QueryHistory />} />
+              <Route path="/history/:id/results" element={<HistoryResultsView />} />
             </Routes>
           </Layout>
           <Toaster position="bottom-right" />

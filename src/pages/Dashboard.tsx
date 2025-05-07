@@ -10,6 +10,7 @@ import TagFilter from '../components/TagFilter';
 import BulkActionsMenu from '../components/BulkActionsMenu';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { useLocation } from 'react-router-dom';
 
 // Define our unified data structure
 interface UnifiedEmailResult {
@@ -40,6 +41,7 @@ const Dashboard: React.FC = () => {
     latestResults,
     clearLatestResults
   } = useEmail();
+  const location = useLocation();
   
   // State for form and inputs
   const [customPrompt, setCustomPrompt] = useState('');
@@ -60,6 +62,10 @@ const Dashboard: React.FC = () => {
   // Refs
   const resultsContainerRef = useRef<HTMLDivElement>(null);
   const customPromptTextareaRef = useRef<HTMLTextAreaElement>(null);
+  
+  // State for rerun filter and prompt
+  const [rerunFilterState, setRerunFilterState] = useState<any>(null);
+  const [rerunPromptState, setRerunPromptState] = useState<{promptType: 'custom' | 'saved', prompt: string, promptId: string | null} | null>(null);
   
   // When latestResults change, update our unified results structure
   useEffect(() => {
@@ -176,11 +182,15 @@ const Dashboard: React.FC = () => {
     }
     
     let finalPrompt = customPrompt;
+    let promptType: 'custom' | 'saved' = 'custom';
+    let promptId: string | null = null;
 
     if (selectedPromptId) {
       const selected = savedPrompts.find(p => p.id === selectedPromptId);
       if (selected) {
         finalPrompt = selected.prompt;
+        promptType = 'saved';
+        promptId = selected.id;
       } else {
         toast.error('Selected saved prompt not found.');
         return;
@@ -191,16 +201,25 @@ const Dashboard: React.FC = () => {
     }
     
     try {
-      const emails = await fetchEmails(formData);
+      const emails = await fetchEmails({ ...formData, groupBySubject });
       
       let emailsToProcess = emails;
       
       // Apply grouping only if the checkbox was checked
       if (groupBySubject) {
-        // Group by gmMsgId, fallback to Message-ID, then subject
+        // Group by Gmail thread id if present, otherwise by normalised subject
         const emailGroups = new Map<string, any[]>();
+
         emails.forEach(email => {
-          const groupKey = email.gmMsgId || email["messageId"] || email.subject || '(no subject)';
+          // Normalise subject by removing typical reply/forward prefixes and trimming/normalising whitespace
+          const normalisedSubject = (email.subject || '')
+            .replace(/^(re|fw|fwd):\s*/i, '') // strip common prefixes
+            .replace(/\s+/g, ' ')             // collapse whitespace
+            .trim()
+            .toLowerCase();
+
+          const groupKey = (email.gmThreadId ? String(email.gmThreadId) : normalisedSubject) || '(no subject)';
+
           if (!emailGroups.has(groupKey)) {
             emailGroups.set(groupKey, []);
           }
@@ -232,7 +251,7 @@ const Dashboard: React.FC = () => {
       }
       
       // Process emails (this updates latestResults in EmailContext)
-      await processEmails(emailsToProcess, finalPrompt, processIndividually);
+      await processEmails(emailsToProcess, finalPrompt, processIndividually, promptType, promptId);
     } catch (error) {
       toast.error('Error processing emails');
       console.error(error);
@@ -349,6 +368,61 @@ const Dashboard: React.FC = () => {
     }
   };
 
+  // On mount, check for rerun state and trigger process if present
+  const rerunRef = useRef(false);
+  useEffect(() => {
+    if (rerunRef.current) return; // Prevent double-processing
+    if (location.state && (location.state as any).rerun) {
+      const rerun = (location.state as any).rerun;
+      // Set form state
+      setRerunFilterState({ ...rerun.formData, processIndividually: rerun.processIndividually, groupBySubject: rerun.groupBySubject });
+      setRerunPromptState({ promptType: rerun.promptType, prompt: rerun.prompt, promptId: rerun.promptId });
+      if (rerun.promptType === 'custom') {
+        setCustomPrompt(rerun.prompt);
+        setSelectedPromptId(null);
+      } else if (rerun.promptType === 'saved') {
+        setCustomPrompt('');
+        setSelectedPromptId(rerun.promptId);
+      }
+      rerunRef.current = true;
+    }
+    // eslint-disable-next-line
+  }, []);
+
+  // Trigger handleProcess only when rerun state and prompt are ready
+  useEffect(() => {
+    if (!rerunRef.current) return;
+    if (location.state && (location.state as any).rerun) {
+      const rerun = (location.state as any).rerun;
+      if (rerun.promptType === 'custom' && customPrompt) {
+        handleProcess({
+          formData: rerun.formData,
+          processIndividually: rerun.processIndividually,
+          groupBySubject: rerun.groupBySubject,
+        });
+        setRerunFilterState(null);
+        setRerunPromptState(null);
+        window.history.replaceState({}, document.title);
+        rerunRef.current = false;
+      } else if (rerun.promptType === 'saved' && selectedPromptId) {
+        // Ensure the prompt exists in savedPrompts
+        const found = savedPrompts.find(p => p.id === selectedPromptId);
+        if (found) {
+          handleProcess({
+            formData: rerun.formData,
+            processIndividually: rerun.processIndividually,
+            groupBySubject: rerun.groupBySubject,
+          });
+          setRerunFilterState(null);
+          setRerunPromptState(null);
+          window.history.replaceState({}, document.title);
+          rerunRef.current = false;
+        }
+      }
+    }
+    // eslint-disable-next-line
+  }, [customPrompt, selectedPromptId, savedPrompts]);
+
   return (
     <div className="max-w-6xl mx-auto">
       <div className="mb-8">
@@ -381,7 +455,7 @@ const Dashboard: React.FC = () => {
                 <Calendar className="w-5 h-5 mr-2 text-blue-500" />
                 Email Filters
               </h3>
-              <EmailFilterForm onSubmit={handleProcess} isLoading={isFetching || isProcessing} />
+              <EmailFilterForm onSubmit={handleProcess} isLoading={isFetching || isProcessing} initialValues={rerunFilterState} />
             </div>
             
             {/* Prompt form */}
