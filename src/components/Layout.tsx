@@ -66,14 +66,15 @@ const Layout: React.FC<LayoutProps> = ({ children, isUpdateAvailableForRefresh }
           <div className="px-4 py-6 border-t border-gray-200 space-y-3">
             {/* Conditionally render update indicator HERE */}
             {isUpdateAvailableForRefresh && (
-                <div 
-                   className="flex items-center text-xs text-yellow-700 bg-yellow-100 px-2 py-1 rounded-md animate-pulse"
-                   title="Application update available. Please refresh the page."
-                 >
-                    <RefreshCw size={12} className="mr-1.5 flex-shrink-0"/>
-                    <span>Refresh page for update</span>
-                </div>
-             )}
+              <button
+                onClick={() => window.location.reload()}
+                className="flex items-center text-xs text-yellow-700 bg-yellow-100 px-2 py-1 rounded-md hover:bg-yellow-200 transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-yellow-400"
+                title="Application update available. Click to refresh and update."
+              >
+                <RefreshCw size={12} className="mr-1.5 flex-shrink-0" />
+                <span>Refresh to update app</span>
+              </button>
+            )}
            {/* Email Status */}
            <div className="flex items-center">
              {/* Status Dot Logic */}

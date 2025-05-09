@@ -107,6 +107,43 @@ const HistoryResultsView: React.FC = () => {
         <h1 className="text-2xl font-bold">Past Query Results</h1>
         <button onClick={() => navigate(-1)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">Back to History</button>
       </div>
+      {/* Prompt Info Section */}
+      <div className="bg-gray-50 rounded-md p-3 text-sm mb-4">
+        <div className="mb-1">
+          <span className="font-medium">Type:</span>
+          <span className="ml-1 text-gray-600">
+            {historyItem.promptType === 'saved' ? 'Saved Prompt' : 'Custom Prompt'}
+          </span>
+          {historyItem.promptType === 'saved' && (
+            <>
+              <span className="ml-2 font-medium">Name:</span>
+              <span className="ml-1 text-gray-600">
+                {(() => {
+                  try {
+                    const prompts = JSON.parse(localStorage.getItem('emailai-prompts') || '[]');
+                    const found = prompts.find((p: any) => p.id === historyItem.promptId);
+                    return found ? found.name : <span className="text-red-500">(Deleted)</span>;
+                  } catch {
+                    return <span className="text-red-500">(Unknown)</span>;
+                  }
+                })()}
+              </span>
+            </>
+          )}
+        </div>
+        {/* Model/Temperature Info */}
+        <div className="mb-1">
+          <span className="font-medium">Model:</span>
+          <span className="ml-1 text-gray-600">
+            {historyItem.model ? historyItem.model : <span className="italic text-gray-400">(Default)</span>}
+          </span>
+          <span className="ml-2 font-medium">Temperature:</span>
+          <span className="ml-1 text-gray-600">
+            {typeof historyItem.temperature === 'number' ? historyItem.temperature : <span className="italic text-gray-400">(Default)</span>}
+          </span>
+        </div>
+        <p className="text-gray-600 line-clamp-3 whitespace-pre-line">{historyItem.prompt}</p>
+      </div>
       {/* Tag/Flag Filters (dashboard design) */}
       <div className="flex flex-col md:flex-row gap-4 mb-4">
         <div className="flex-1">

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronDown, ChevronUp, Copy, Check, MoreVertical } from 'lucide-react';
+import { ChevronDown, ChevronUp, Copy, Check, MoreVertical, Download } from 'lucide-react';
 
 interface BulkActionsMenuProps {
   isAllExpanded: boolean;
@@ -7,6 +7,8 @@ interface BulkActionsMenuProps {
   onCollapseAll: () => void;
   onCopyAll: () => void;
   isCopyAllEnabled: boolean;
+  onDownloadCsv: () => void;
+  isDownloadCsvEnabled: boolean;
 }
 
 const BulkActionsMenu: React.FC<BulkActionsMenuProps> = ({
@@ -14,7 +16,9 @@ const BulkActionsMenu: React.FC<BulkActionsMenuProps> = ({
   onExpandAll,
   onCollapseAll,
   onCopyAll,
-  isCopyAllEnabled
+  isCopyAllEnabled,
+  onDownloadCsv,
+  isDownloadCsvEnabled
 }) => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
@@ -83,6 +87,18 @@ const BulkActionsMenu: React.FC<BulkActionsMenuProps> = ({
             </>
           )}
         </button>
+        <button
+          onClick={onDownloadCsv}
+          disabled={!isDownloadCsvEnabled}
+          className={`px-3 py-1.5 text-sm rounded-md flex items-center transition-colors duration-200 ${
+            isDownloadCsvEnabled 
+              ? 'bg-gray-200 text-gray-700 hover:bg-gray-300' 
+              : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+          }`}
+          title={isDownloadCsvEnabled ? "Download filtered results as CSV" : "No content to download"}
+        >
+          <Download className="h-4 w-4 mr-1.5" /> Download CSV
+        </button>
       </div>
       
       {/* Dropdown menu for mobile/smaller screens */}
@@ -136,6 +152,17 @@ const BulkActionsMenu: React.FC<BulkActionsMenuProps> = ({
                     Copy All
                   </>
                 )}
+              </button>
+              <button
+                onClick={onDownloadCsv}
+                disabled={!isDownloadCsvEnabled}
+                className={`w-full text-left px-4 py-2 text-sm flex items-center ${
+                  isDownloadCsvEnabled 
+                    ? 'text-gray-700 hover:bg-gray-100' 
+                    : 'text-gray-400 cursor-not-allowed'
+                }`}
+              >
+                <Download className="h-4 w-4 mr-2" /> Download CSV
               </button>
             </div>
           </div>

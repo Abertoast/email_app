@@ -262,18 +262,15 @@ const Settings: React.FC = () => {
                   className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
                 >
-                  <option value="gpt-4o">gpt-4o</option>
-                  <option value="o4-mini">o4-mini</option>
-                  <option value="o3">o3</option>
-                  <option value="o3-mini">o3-mini</option>
-                  <option value="o1">o1</option>
-                  <option value="o1-mini">o1-mini</option>
-                  <option value="o1-pro">o1-pro</option>
-                  <option value="gpt-4.1">gpt-4.1</option>
+                  <option value="gpt-4o">gpt-4o ($2.50/$10.00)</option>
+                  <option value="gpt-4o-mini">gpt-4o-mini ($0.15/$0.60)</option>
+                  <option value="gpt-4.1">gpt-4.1 ($2.00/$8.00)</option>
+                  <option value="gpt-4.1-mini">gpt-4.1-mini ($0.40/$1.60)</option>
+                  <option value="o1-pro">o1-pro ($150.00/$600.00)</option>
+                  <option value="o3">o3 ($10.00/$40.00)</option>
+                  <option value="o4-mini">o4-mini ($1.10/$4.40)</option>
                 </select>
-                <p className="mt-1 text-xs text-gray-500">
-                  Select the OpenAI model to use for processing emails
-                </p>
+                <span className="text-xs text-gray-500">(input/output per 1M tokens)</span>
               </div>
               
               <div>

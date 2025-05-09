@@ -165,6 +165,17 @@ const QueryHistory: React.FC = () => {
                           </>
                         )}
                       </div>
+                      {/* Model/Temperature Info */}
+                      <div className="mb-1">
+                        <span className="font-medium">Model:</span>
+                        <span className="ml-1 text-gray-600">
+                          {query.model ? query.model : <span className="italic text-gray-400">(Default)</span>}
+                        </span>
+                        <span className="ml-2 font-medium">Temperature:</span>
+                        <span className="ml-1 text-gray-600">
+                          {typeof query.temperature === 'number' ? query.temperature : <span className="italic text-gray-400">(Default)</span>}
+                        </span>
+                      </div>
                       <p className="text-gray-600 line-clamp-3 whitespace-pre-line">{query.prompt}</p>
                     </div>
                   </div>

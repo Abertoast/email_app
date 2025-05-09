@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Calendar, Clock, RefreshCw, Inbox, Search, Loader, X, Mail, ChevronDown, ChevronRight, Copy, Filter } from 'lucide-react';
+import { Calendar, Clock, RefreshCw, Inbox, Search, Loader, X, Mail, ChevronDown, ChevronRight, Copy, Filter, Download } from 'lucide-react';
 import { useEmail } from '../contexts/EmailContext';
 import { useSettings } from '../contexts/SettingsContext';
 import toast from 'react-hot-toast';
@@ -423,6 +423,45 @@ const Dashboard: React.FC = () => {
     // eslint-disable-next-line
   }, [customPrompt, selectedPromptId, savedPrompts]);
 
+  // Download all filtered results as CSV
+  const handleDownloadCsv = () => {
+    if (filteredResults.length === 0) return;
+    // Helper to escape CSV fields
+    const escapeCsv = (value: string) => {
+      if (value == null) return '';
+      const str = String(value);
+      if (str.includes('"') || str.includes(',') || str.includes('\n')) {
+        return '"' + str.replace(/"/g, '""') + '"';
+      }
+      return str;
+    };
+    // CSV header
+    const columns = ['Date', 'Time', 'Sender email', 'Flags', 'Tags', 'LLM response'];
+    const rows = filteredResults.map(item => {
+      const dateObj = item.date ? new Date(item.date) : null;
+      const date = dateObj ? dateObj.toLocaleDateString() : '';
+      const time = dateObj ? dateObj.toLocaleTimeString() : '';
+      const sender = item.sender || '';
+      const flags = Array.isArray(item.flags) ? item.flags.join(', ') : '';
+      const tags = item.result && Array.isArray(item.result.tags) ? item.result.tags.join(', ') : '';
+      const content = item.result?.content || '';
+      return [date, time, sender, flags, tags, content].map(escapeCsv).join(',');
+    });
+    const csvContent = [columns.join(','), ...rows].join('\r\n');
+    // Download logic
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `emailai_results_${new Date().toISOString().slice(0,19).replace(/[:T]/g, '-')}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 0);
+  };
+
   return (
     <div className="max-w-6xl mx-auto">
       <div className="mb-8">
@@ -633,6 +672,10 @@ const Dashboard: React.FC = () => {
                         onCollapseAll={handleCollapseAll}
                         onCopyAll={handleCopyAll}
                         isCopyAllEnabled={filteredResults.some(item => 
+                          item.processed && item.result?.content
+                        )}
+                        onDownloadCsv={handleDownloadCsv}
+                        isDownloadCsvEnabled={filteredResults.some(item => 
                           item.processed && item.result?.content
                         )}
                       />

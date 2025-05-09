@@ -1,5 +1,5 @@
 {
-  "updateId": "20250507-query-history-show-results",
-  "title": "Query History: View Past Results!",
-  "description": "You can now instantly view the exact results of any past query! The Query History page features a new \"Show Results\" button for each entry. Click it to open a dedicated results view, where you'll see all emails and AI-processed results as they were at the time of the query. Explore, filter, and copy results just like on the dashboard. This makes it easy to revisit, share, or analyze previous queries—no need to re-run them."
+  "updateId": "20250509-csv-batch-perprompt",
+  "title": "New Features: CSV Export, Per-Prompt Model, 1000 Email Batching + Query History Results View!",
+  "description": "**May 9, 2025 — Major Improvements:**\n\n- **Download CSV:** Export filtered or processed results as a CSV file from the dashboard and results views.\n- **Per-Prompt Model & Temperature:** Saved prompts can now specify a model and temperature, or use the global default.\n- **Increased Email Fetch Limit:** Fetch and process up to 1000 emails at a time, with processing done in batches of 100 for reliability and to respect LLM API rate limits. Progress is shown in the UI.\n\n**Previously (May 7, 2025):**\n\n- **Query History: View Past Results!**\n    - Instantly view the exact results of any past query.\n    - Use the new \"Show Results\" button in Query History to open a dedicated results view.\n    - Explore, filter, and copy results just like on the dashboard.\n    - Makes it easy to revisit, share, or analyze previous queries—no need to re-run them.\n"
 } 

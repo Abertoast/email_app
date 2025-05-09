@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Copy, Check, Tag as TagIcon, Filter, X } from 'lucide-react';
+import { Copy, Check, Tag as TagIcon, Filter, X, Download } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 // Only import Components type
@@ -98,6 +98,48 @@ const ProcessingResults: React.FC<ProcessingResultsProps> = ({
     }
   };
 
+  // Handler for downloading all filtered results as CSV
+  const handleDownloadCsv = () => {
+    if (!isIndividual || !filteredResults || (filteredResults as any[]).length === 0) return;
+
+    // Helper to escape CSV fields
+    const escapeCsv = (value: string) => {
+      if (value == null) return '';
+      const str = String(value);
+      if (str.includes('"') || str.includes(',') || str.includes('\n')) {
+        return '"' + str.replace(/"/g, '""') + '"';
+      }
+      return str;
+    };
+
+    // CSV header
+    const columns = ['Date', 'Time', 'Sender email', 'Flags', 'Tags', 'LLM response'];
+    const rows = (filteredResults as any[]).map(item => {
+      const dateObj = item.date ? new Date(item.date) : null;
+      const date = dateObj ? dateObj.toLocaleDateString() : '';
+      const time = dateObj ? dateObj.toLocaleTimeString() : '';
+      const sender = item.sender || '';
+      const flags = Array.isArray(item.flags) ? item.flags.join(', ') : '';
+      const tags = Array.isArray(item.tags) ? item.tags.join(', ') : '';
+      const content = item.content || '';
+      return [date, time, sender, flags, tags, content].map(escapeCsv).join(',');
+    });
+    const csvContent = [columns.join(','), ...rows].join('\r\n');
+
+    // Download logic
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `emailai_results_${new Date().toISOString().slice(0,19).replace(/[:T]/g, '-')}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 0);
+  };
+
   const toggleFilterTag = (tagName: string) => {
     setSelectedFilterTags(prev =>
       prev.includes(tagName)
@@ -159,9 +201,9 @@ const ProcessingResults: React.FC<ProcessingResultsProps> = ({
       )}
       {/* --- End Tag Filter UI --- */}
       
-      {/* --- Copy All Button --- */}
+      {/* --- Copy All & Download CSV Buttons --- */}
       {isIndividual && (filteredResults as any[]).length > 0 && (
-         <div className="mb-4 flex justify-end"> {/* Add margin bottom */} 
+         <div className="mb-4 flex justify-end space-x-2"> {/* Add margin bottom and spacing */} 
              <button
                onClick={handleCopyAll}
                className="px-3 py-1.5 text-sm rounded-md flex items-center transition-colors duration-200 bg-gray-200 text-gray-700 hover:bg-gray-300"
@@ -177,9 +219,16 @@ const ProcessingResults: React.FC<ProcessingResultsProps> = ({
                    </>
                )}
              </button>
+             <button
+               onClick={handleDownloadCsv}
+               className="px-3 py-1.5 text-sm rounded-md flex items-center transition-colors duration-200 bg-gray-200 text-gray-700 hover:bg-gray-300"
+               title="Download filtered results as CSV"
+             >
+               <Download className="h-4 w-4 mr-1.5" /> Download CSV
+             </button>
          </div>
       )}
-      {/* --- End Copy All Button --- */}
+      {/* --- End Copy All & Download CSV Buttons --- */}
 
       {/* --- Results Display --- */}
       {isIndividual ? (

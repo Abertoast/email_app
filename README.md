@@ -18,6 +18,9 @@ A web-based tool to connect to your email account via IMAP, fetch emails, and pr
 *   **Unified Email & Result Cards:** Fetched emails and their AI-processed results are now displayed together in a single, unified card for each email, making it easier to review and act on results.
 *   **Advanced Filtering:** Filter results using both tags (AI-extracted) and flags (labels/folders). The filter UI supports "OR" logic within tags or flags, and "AND" logic between the two groups, so you can find emails matching any selected tag and any selected flag.
 *   **Merged Label/Folder Chips:** Labels and folders are visually merged in the UI, with duplicate names shown only once and clear color coding for system/user labels and folders.
+*   **Download CSV:** Export filtered or processed results as a CSV file for further analysis.
+*   **Per-Prompt Model & Temperature:** Saved prompts can specify a model and temperature, or use the global default from Settings.
+*   **Increased Email Fetch Limit & Batching:** Fetch and process up to 1000 emails at a time, with processing done in batches of 100 to respect LLM API rate limits and improve reliability. Progress is shown in the UI.
 
 ## Technology Stack
 
@@ -78,8 +81,10 @@ A web-based tool to connect to your email account via IMAP, fetch emails, and pr
 3.  **Results:**
     *   Fetched emails will appear in the list.
     *   The AI processing results will be displayed below.
+    *   You can download filtered or processed results as a CSV file using the "Download CSV" button.
 4.  **Prompt Library / Query History:** Explore these pages to manage saved prompts and view past query results.
-    *   In Query History, use the new "Show Results" button to open a dedicated results view for any past query, displaying all emails and results as they were at the time of the query. You can filter, expand, and copy results just like on the dashboard.
+    *   In the Prompt Library, you can optionally set a specific model and temperature for each saved prompt. These settings override the global defaults when the prompt is used.
+    *   In Query History, use the new "Show Results" button to open a dedicated results view for any past query, displaying all emails and results as they were at the time of the query. You can filter, expand, copy, or download results just like on the dashboard.
 4.  **Filtering & Results:**
     *   Results are shown as unified cards, each displaying the original email, its AI-processed content, and all associated tags, labels, and folders.
     *   Use the filter UI above the results to filter by any combination of tags and flags (labels/folders). Tags and flags use "OR" logic within their group, and "AND" logic between groups.
@@ -90,6 +95,8 @@ A web-based tool to connect to your email account via IMAP, fetch emails, and pr
 The application uses a client-heavy architecture:
 
 *   **Frontend (React SPA):** Handles UI, state management, `localStorage` persistence, routing, and **direct calls to the OpenAI API**. **Query history now stores the raw emails and UI state for each query, enabling full replay of past results.**
+    *   When processing emails, the app supports per-prompt model and temperature (if set in the saved prompt), and processes large batches of emails (up to 1000) in groups of 100 for reliability and to respect API rate limits. Progress is shown in the UI.
+    *   Users can export results as CSV from the dashboard and results views.
 *   **Backend (Node.js/Express API):** Acts primarily as an **IMAP proxy**. It receives fetch requests from the frontend, connects to the IMAP server, retrieves emails, parses them, and sends the structured data back to the frontend. It does *not* handle OpenAI API calls.
 
 ## Security Considerations

@@ -14,6 +14,8 @@ interface SavedPrompt {
   id: string;
   name: string;
   prompt: string;
+  model?: string; // Optional per-prompt model
+  temperature?: number; // Optional per-prompt temperature
 }
 
 export interface PromptVariable {
@@ -109,7 +111,13 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const storedPrompts = localStorage.getItem('emailai-prompts');
     if (storedPrompts) {
       try {
-        setSavedPrompts(JSON.parse(storedPrompts));
+        // Migrate prompts to ensure model/temperature fields exist
+        const loadedPrompts = JSON.parse(storedPrompts).map((p: any) => ({
+          ...p,
+          model: typeof p.model !== 'undefined' ? p.model : undefined,
+          temperature: typeof p.temperature !== 'undefined' ? p.temperature : undefined,
+        }));
+        setSavedPrompts(loadedPrompts);
       } catch (error) {
         console.error('Failed to parse stored prompts', error);
       }

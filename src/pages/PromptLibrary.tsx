@@ -9,7 +9,21 @@ interface PromptFormData {
   id: string;
   name: string;
   prompt: string;
+  model?: string;
+  temperature?: number;
 }
+
+// Define models that support temperature (should match Settings.tsx)
+const MODELS_SUPPORTING_TEMP = new Set(['gpt-4o', 'gpt-4.1']);
+const MODEL_OPTIONS = [
+  { value: 'gpt-4o', label: 'gpt-4o ($2.50/$10.00)' },
+  { value: 'gpt-4o-mini', label: 'gpt-4o-mini ($0.15/$0.60)' },
+  { value: 'gpt-4.1', label: 'gpt-4.1 ($2.00/$8.00)' },
+  { value: 'gpt-4.1-mini', label: 'gpt-4.1-mini ($0.40/$1.60)' },
+  { value: 'o1-pro', label: 'o1-pro ($150.00/$600.00)' },
+  { value: 'o3', label: 'o3 ($10.00/$40.00)' },
+  { value: 'o4-mini', label: 'o4-mini ($1.10/$4.40)' },
+];
 
 const PromptLibrary: React.FC = () => {
   const { savedPrompts, addPrompt, updatePrompt, deletePrompt, promptVariables, tags } = useSettings();
@@ -17,7 +31,9 @@ const PromptLibrary: React.FC = () => {
   const [currentPrompt, setCurrentPrompt] = useState<PromptFormData>({
     id: '',
     name: '',
-    prompt: ''
+    prompt: '',
+    model: undefined,
+    temperature: undefined,
   });
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
   
@@ -25,7 +41,9 @@ const PromptLibrary: React.FC = () => {
     setCurrentPrompt({
       id: Date.now().toString(),
       name: '',
-      prompt: ''
+      prompt: '',
+      model: undefined,
+      temperature: undefined,
     });
     setIsEditing(true);
   };
@@ -34,14 +52,20 @@ const PromptLibrary: React.FC = () => {
     setCurrentPrompt({
       id: prompt.id,
       name: prompt.name,
-      prompt: prompt.prompt
+      prompt: prompt.prompt,
+      model: prompt.model,
+      temperature: prompt.temperature,
     });
     setIsEditing(true);
   };
   
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    setCurrentPrompt(prev => ({ ...prev, [name]: value }));
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const { name, value, type } = e.target;
+    let valueToSet: any = value;
+    if (name === 'temperature') {
+      valueToSet = value === '' ? undefined : parseFloat(value);
+    }
+    setCurrentPrompt(prev => ({ ...prev, [name]: valueToSet }));
   };
   
   const handleSubmit = (e: React.FormEvent) => {
@@ -52,21 +76,30 @@ const PromptLibrary: React.FC = () => {
       return;
     }
     
+    // Only save model/temperature if set (undefined means use global)
+    const promptToSave = {
+      id: currentPrompt.id,
+      name: currentPrompt.name,
+      prompt: currentPrompt.prompt,
+      model: currentPrompt.model || undefined,
+      temperature: typeof currentPrompt.temperature === 'number' ? currentPrompt.temperature : undefined,
+    };
+    
     if (savedPrompts.some(p => p.id === currentPrompt.id)) {
-      updatePrompt(currentPrompt);
+      updatePrompt(promptToSave);
       toast.success('Prompt updated successfully');
     } else {
-      addPrompt(currentPrompt);
+      addPrompt(promptToSave);
       toast.success('Prompt saved successfully');
     }
     
     setIsEditing(false);
-    setCurrentPrompt({ id: '', name: '', prompt: '' });
+    setCurrentPrompt({ id: '', name: '', prompt: '', model: undefined, temperature: undefined });
   };
   
   const handleCancel = () => {
     setIsEditing(false);
-    setCurrentPrompt({ id: '', name: '', prompt: '' });
+    setCurrentPrompt({ id: '', name: '', prompt: '', model: undefined, temperature: undefined });
   };
   
   const handleDelete = (id: string) => {
@@ -209,6 +242,50 @@ const PromptLibrary: React.FC = () => {
                       ))}
                     </div>
                   )}
+                </div>
+                {/* Model Selection */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Model (optional)</label>
+                  <select
+                    name="model"
+                    value={currentPrompt.model || ''}
+                    onChange={handleChange}
+                    className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">(Use default model)</option>
+                    {MODEL_OPTIONS.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                  <span className="text-xs text-gray-500">(input/output per 1M tokens)</span>
+                </div>
+                {/* Temperature Selection */}
+                <div>
+                  {/* Determine if the selected model supports temperature */}
+                  {(() => {
+                    const selectedModel = currentPrompt.model || '';
+                    const supportsTemp = MODELS_SUPPORTING_TEMP.has(selectedModel) || !selectedModel;
+                    return (
+                      <>
+                        <label className={`block text-sm font-medium mb-1 ${supportsTemp ? 'text-gray-700' : 'text-gray-400'}`}>Temperature (optional)</label>
+                        <input
+                          type="number"
+                          name="temperature"
+                          value={typeof currentPrompt.temperature === 'number' ? currentPrompt.temperature : ''}
+                          onChange={handleChange}
+                          className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 ${supportsTemp ? 'focus:ring-blue-500' : 'bg-gray-100 text-gray-500 cursor-not-allowed'}`}
+                          min="0"
+                          max="2"
+                          step="0.1"
+                          placeholder="(Use default)"
+                          disabled={!supportsTemp}
+                        />
+                        <p className={`mt-1 text-xs ${supportsTemp ? 'text-gray-500' : 'text-gray-400'}`}>
+                          Controls randomness (only for GPT-4o, GPT-4 Turbo). Leave blank to use the default temperature from Settings.
+                        </p>
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
             </div>
